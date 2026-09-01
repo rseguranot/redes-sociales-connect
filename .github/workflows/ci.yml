@@ -1,0 +1,37 @@
+name: Validar solución
+
+on:
+  push:
+    branches: [main, dev, prod]
+  pull_request:
+    branches: [main, dev, prod]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - uses: aws-actions/setup-sam@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Pruebas Python
+        run: python -m unittest discover -s tests -v
+      - name: Validar y construir SAM
+        run: |
+          sam validate --lint --template-file template.yaml --region us-east-1
+          sam build --template-file template.yaml
+      - name: Probar y construir aplicación
+        working-directory: app
+        run: |
+          npm ci
+          npm audit --omit=dev --audit-level=moderate
+          npm test

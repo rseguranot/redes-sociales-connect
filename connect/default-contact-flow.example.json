@@ -1,0 +1,57 @@
+{
+  "Version": "2019-10-30",
+  "StartAction": "InitializeSocialContext",
+  "Metadata": {
+    "EntryPointPosition": {
+      "x": 40,
+      "y": 40
+    },
+    "ActionMetadata": {
+      "InitializeSocialContext": {"Position": {"x": 220, "y": 40}},
+      "SetWorkingQueue": {"Position": {"x": 500, "y": 40}},
+      "TransferToAgentQueue": {"Position": {"x": 780, "y": 40}},
+      "EndContact": {"Position": {"x": 1060, "y": 40}}
+    }
+  },
+  "Actions": [
+    {
+      "Identifier": "InitializeSocialContext",
+      "Type": "InvokeFlowModule",
+      "Parameters": {"FlowModuleId": "${CONNECT_CONTEXT_MODULE_ARN}"},
+      "Transitions": {
+        "NextAction": "SetWorkingQueue",
+        "Errors": [
+          {"NextAction": "SetWorkingQueue", "ErrorType": "NoMatchingCondition"},
+          {"NextAction": "SetWorkingQueue", "ErrorType": "NoMatchingError"}
+        ]
+      }
+    },
+    {
+      "Identifier": "SetWorkingQueue",
+      "Type": "UpdateContactTargetQueue",
+      "Parameters": {"QueueId": "${CONNECT_QUEUE_ARN}"},
+      "Transitions": {
+        "NextAction": "TransferToAgentQueue",
+        "Errors": [{"NextAction": "EndContact", "ErrorType": "NoMatchingError"}]
+      }
+    },
+    {
+      "Identifier": "TransferToAgentQueue",
+      "Type": "TransferContactToQueue",
+      "Parameters": {},
+      "Transitions": {
+        "NextAction": "EndContact",
+        "Errors": [
+          {"NextAction": "EndContact", "ErrorType": "QueueAtCapacity"},
+          {"NextAction": "EndContact", "ErrorType": "NoMatchingError"}
+        ]
+      }
+    },
+    {
+      "Identifier": "EndContact",
+      "Type": "DisconnectParticipant",
+      "Parameters": {},
+      "Transitions": {}
+    }
+  ]
+}

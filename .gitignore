@@ -1,0 +1,45 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+.aws-sam/
+samconfig.toml
+samconfig.*.toml
+
+app/node_modules/
+app/dist/
+app/.vite/
+app/app/
+app/public/config.js
+
+# Configuraciones reales de cada negocio/cuenta. Solo se versiona el ejemplo neutro.
+config/*.psd1
+!config/business.example.psd1
+
+# Identidad visual del cliente. El repositorio conserva únicamente la marca neutra.
+branding/*
+!branding/README.md
+!branding/brand-logo.svg
+app/public/assets/*
+!app/public/assets/brand-logo.svg
+
+# Evidencias y artefactos de pruebas locales.
+evidencias/
+evidence/
+screenshots/
+captures/
+tmp/
+temp/
+*.log
+
+.env
+.env.*
+!.env.example
+
+# Material criptográfico o credenciales exportadas nunca pertenece al repositorio.
+*.pem
+*.key
+*.pfx
+*.p12

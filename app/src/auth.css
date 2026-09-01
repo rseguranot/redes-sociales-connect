@@ -1,0 +1,106 @@
+.auth {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at 75% 15%, #15563f33, transparent 28%),
+    linear-gradient(135deg, #08192c, #14344f);
+  padding: 30px;
+}
+.auth > section {
+  width: 430px;
+  background: white;
+  border-radius: 13px;
+  padding: 34px;
+  box-shadow: 0 25px 60px #0005;
+}
+.auth-brand {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin: -18px -18px 0;
+  padding: 12px 18px;
+  border-radius: 9px;
+  background: linear-gradient(135deg, #102b47, #08192c);
+}
+.auth-brand img {
+  width: 140px;
+  height: 60px;
+  object-fit: contain;
+  object-position: left center;
+}
+.auth-brand div {
+  display: flex;
+  flex-direction: column;
+}
+.auth-brand b {
+  letter-spacing: 1px;
+}
+.auth-brand span {
+  font-size: 11px;
+  color: #c5d0db;
+}
+.auth-shield {
+  display: block;
+  color: #079455;
+  font-size: 45px;
+  margin: 35px auto 12px;
+}
+.auth h1 {
+  text-align: center;
+  font-size: 24px;
+}
+.auth > section > p {
+  text-align: center;
+  color: #687580;
+  line-height: 1.5;
+}
+.auth label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 24px 0;
+  font-size: 12px;
+  font-weight: 650;
+}
+.auth label > div {
+  height: 46px;
+  border: 1px solid #dfe4ea;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  color: #71808c;
+}
+.auth label input {
+  border: 0;
+  outline: 0;
+  width: 100%;
+  margin-left: 8px;
+}
+.auth input.otp {
+  height: 52px;
+  border: 1px solid #dfe4ea;
+  border-radius: 7px;
+  text-align: center;
+  font-size: 24px;
+  letter-spacing: 9px;
+}
+.auth .primary {
+  width: 100%;
+}
+.auth > section > small {
+  display: block;
+  text-align: center;
+  color: #7a858f;
+  line-height: 1.4;
+  margin-top: 18px;
+}
+.auth-error {
+  background: #fff0ef;
+  color: #a43832;
+  padding: 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  margin-bottom: 12px;
+}

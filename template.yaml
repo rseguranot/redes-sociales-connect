@@ -1,0 +1,1386 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Plataforma serverless reutilizable entre canales sociales de Meta y Amazon Connect.
+
+Metadata:
+  AWS::ServerlessRepo::Application:
+    Name: redes-sociales-connect
+    Description: Integración directa y extensible de canales sociales de Meta con Amazon Connect.
+    Author: rseguranot
+    SpdxLicenseId: MIT
+    LicenseUrl: LICENSE
+    ReadmeUrl: README.md
+    Labels: [amazon-connect, whatsapp, meta, serverless, messaging]
+    HomePageUrl: https://github.com/rseguranot/redes-sociales-connect
+    SourceCodeUrl: https://github.com/rseguranot/redes-sociales-connect
+    SemanticVersion: 1.0.0
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: redes-sociales-connect
+    AllowedPattern: '^[a-z][a-z0-9-]{2,23}$'
+    Description: Nombre base de la aplicación, sin el sufijo del entorno. El límite conserva nombres Lambda válidos.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+    Description: Entorno lógico usado para etiquetar y agrupar todos los recursos.
+  DeploymentRevision:
+    Type: String
+    Default: unknown
+    AllowedPattern: '^[A-Za-z0-9._-]{1,64}$'
+    Description: Revisión Git desplegada; permite comparar el código activo con el repositorio sin inspeccionar el paquete Lambda.
+  LambdaRuntime:
+    Type: String
+    Default: python3.14
+    AllowedValues: [python3.14]
+  ConnectInstanceId:
+    Type: String
+    AllowedPattern: '^[0-9a-fA-F-]{36}$'
+    Description: ID de la instancia Amazon Connect donde se crearán los chats.
+  DefaultContactFlowId:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[0-9a-fA-F-]{36}$'
+    Description: ID de un flow publicado existente. Déjelo vacío cuando CreateDefaultContactFlow sea true.
+  CreateDefaultContactFlow:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: Crea un flow mínimo que invoca el módulo de contexto y transfiere el chat a ConnectQueueId.
+  ManagedContactFlowName:
+    Type: String
+    Default: '00 Redes Sociales - Ingreso'
+    AllowedPattern: '.*\S.*'
+  ConnectQueueId:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[0-9a-fA-F-]{36}$'
+    Description: ID de la cola de agentes usada por el flow administrado.
+  DevelopmentContactFlowId:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[0-9a-fA-F-]{36}$'
+    Description: ID opcional de un flujo aislado de Connect para números de prueba.
+  DevelopmentPhoneNumbers:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[0-9+, -]+$'
+    Description: Números de prueba separados por coma, exactamente como los entrega Meta (normalmente E.164 sin +).
+  TemplateDslMode:
+    Type: String
+    Default: disabled
+    AllowedValues: [disabled, allowlist, enabled]
+    Description: Controla el intérprete de plantillas en texto plano; allowlist limita su uso a TemplateDslPhoneNumbers.
+  TemplateDslPhoneNumbers:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[0-9+, -]+$'
+    Description: Números autorizados para probar el intérprete cuando TemplateDslMode es allowlist.
+  DeveloperRoutingProfileIds:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[0-9a-fA-F, -]+$'
+    Description: IDs de routing profiles que reciben el rol Developer dentro de la aplicación 3P.
+  DeveloperSecurityProfileIds:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[0-9a-fA-F, -]+$'
+    Description: IDs de security profiles con rol Developer permanente y superior a Admin dentro de la aplicación 3P.
+  WhatsAppSecretArn:
+    Type: String
+    AllowedPattern: '^arn:aws[a-zA-Z-]*:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:[A-Za-z0-9/_+=.@-]+$'
+    Description: ARN de un secreto existente con las credenciales de Meta; nunca almacene el token en la plantilla.
+  MetaGraphVersion:
+    Type: String
+    Default: v26.0
+    AllowedPattern: '^v[0-9]+\.0$'
+  OcrBedrockModelId:
+    Type: String
+    Default: us.amazon.nova-2-lite-v1:0
+    AllowedPattern: '^[A-Za-z0-9._:-]+$'
+    Description: Perfil de inferencia de Bedrock que ordena índices OCR sin reescribir el texto.
+  TranscribeLanguageCode:
+    Type: String
+    Default: es-US
+    AllowedPattern: '^(auto|[a-z]{2}-[A-Z]{2})$'
+    Description: Idioma de las notas de voz. Use auto solo para operaciones realmente multilingües.
+  SessionTtlSeconds:
+    Type: Number
+    Default: 86400
+  LogRetentionDays:
+    Type: Number
+    Default: 30
+    AllowedValues: [1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288, 3653]
+    Description: Retención de los logs de API Gateway y las cuatro funciones Lambda.
+  AlarmEmail:
+    Type: String
+    Default: ''
+  EnableDeletionProtection:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+  AdminAppName:
+    Type: String
+    Default: Redes Sociales Connect
+  AdminAppNamespace:
+    Type: String
+    Default: redes-sociales-connect
+    AllowedPattern: '^[a-z][a-z0-9-]{2,63}$'
+    Description: Identificador único de la aplicación 3P dentro de Amazon Connect.
+  AdminAppAuthMode:
+    Type: String
+    Default: disabled
+    AllowedValues: [disabled, connect-context-preview]
+    Description: El contexto del SDK no es autenticación criptográfica. Habilite preview solo en laboratorios; producción requiere SSO externo.
+  BusinessDisplayName:
+    Type: String
+    Default: Mi empresa
+  BusinessTagline:
+    Type: String
+    Default: Comunicaciones seguras
+  CreateConnectContextModule:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: Crea un módulo de flujo que marca y valida el contexto social al inicio del flow.
+  ConnectContextModuleName:
+    Type: String
+    Default: '00 MOD Social - Inicializar contexto'
+    AllowedPattern: '.*\S.*'
+  CreateConnectAttachmentsStorage:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Cree ATTACHMENTS solo si la instancia todavía no tiene una configuración de almacenamiento para adjuntos.
+
+Conditions:
+  HasAlarmEmail: !Not [!Equals [!Ref AlarmEmail, '']]
+  ProtectData: !Equals [!Ref EnableDeletionProtection, 'true']
+  CreateContextModule: !Equals [!Ref CreateConnectContextModule, 'true']
+  CreateManagedDefaultFlow: !Equals [!Ref CreateDefaultContactFlow, 'true']
+  CreateAttachmentsStorage: !Equals [!Ref CreateConnectAttachmentsStorage, 'true']
+
+Rules:
+  DefaultFlowSelection:
+    Assertions:
+      - Assert: !Or
+          - !Equals [!Ref CreateDefaultContactFlow, 'true']
+          - !Not [!Equals [!Ref DefaultContactFlowId, '']]
+        AssertDescription: Indique DefaultContactFlowId cuando no se crea el flow administrado.
+      - Assert: !Or
+          - !Equals [!Ref CreateDefaultContactFlow, 'false']
+          - !Not [!Equals [!Ref ConnectQueueId, '']]
+        AssertDescription: ConnectQueueId es obligatorio cuando CreateDefaultContactFlow es true.
+      - Assert: !Or
+          - !Equals [!Ref CreateDefaultContactFlow, 'false']
+          - !Equals [!Ref CreateConnectContextModule, 'true']
+        AssertDescription: El flow administrado requiere CreateConnectContextModule=true.
+
+Globals:
+  Function:
+    Runtime: !Ref LambdaRuntime
+    Architectures: [arm64]
+    Tracing: Active
+    PropagateTags: true
+    Environment:
+      Variables:
+        POWERTOOLS_SERVICE_NAME: !Sub '${ProjectName}-${Environment}'
+        DEPLOYMENT_REVISION: !Ref DeploymentRevision
+    Tags:
+      Application: !Ref ProjectName
+      Environment: !Ref Environment
+      ManagedBy: AWS-SAM
+
+Resources:
+  DataKey:
+    Type: AWS::KMS::Key
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      EnableKeyRotation: true
+      Description: !Sub Cifrado de datos de ${ProjectName}-${Environment}
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AccountAdministration
+            Effect: Allow
+            Principal: {AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root'}
+            Action: 'kms:*'
+            Resource: '*'
+          - Sid: AwsServices
+            Effect: Allow
+            Principal:
+              Service:
+                - sns.amazonaws.com
+                - sqs.amazonaws.com
+                - connect.amazonaws.com
+            Action: [kms:Decrypt, kms:GenerateDataKey]
+            Resource: '*'
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+          - Sid: CloudWatchLogsRegional
+            Effect: Allow
+            Principal:
+              Service: !Sub 'logs.${AWS::Region}.${AWS::URLSuffix}'
+            Action: [kms:Encrypt, kms:Decrypt, 'kms:ReEncrypt*', 'kms:GenerateDataKey*', kms:DescribeKey]
+            Resource: '*'
+            Condition:
+              ArnLike:
+                kms:EncryptionContext:aws:logs:arn: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/*'
+  DataKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub alias/${ProjectName}-${Environment}
+      TargetKeyId: !Ref DataKey
+
+  MediaBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub '${ProjectName}-${Environment}-${AWS::AccountId}-${AWS::Region}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: {SSEAlgorithm: aws:kms, KMSMasterKeyID: !GetAtt DataKey.Arn}
+            BucketKeyEnabled: true
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules: [{ObjectOwnership: BucketOwnerEnforced}]
+      VersioningConfiguration: {Status: Enabled}
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireTemporaryMedia
+            Status: Enabled
+            Prefix: inbound/
+            ExpirationInDays: 90
+            NoncurrentVersionExpiration: {NoncurrentDays: 30}
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [PUT]
+            AllowedOrigins: ['*']
+            MaxAge: 300
+
+  StateTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub 'tb_${ProjectName}-${Environment}'
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: !If [ProtectData, true, false]
+      PointInTimeRecoverySpecification: {PointInTimeRecoveryEnabled: true}
+      SSESpecification: {SSEEnabled: true, SSEType: KMS, KMSMasterKeyId: !GetAtt DataKey.Arn}
+      TimeToLiveSpecification: {AttributeName: ttl, Enabled: true}
+      AttributeDefinitions:
+        - {AttributeName: pk, AttributeType: S}
+        - {AttributeName: sk, AttributeType: S}
+        - {AttributeName: gsi1pk, AttributeType: S}
+        - {AttributeName: gsi1sk, AttributeType: S}
+      KeySchema:
+        - {AttributeName: pk, KeyType: HASH}
+        - {AttributeName: sk, KeyType: RANGE}
+      GlobalSecondaryIndexes:
+        - IndexName: ContactIndex
+          KeySchema:
+            - {AttributeName: gsi1pk, KeyType: HASH}
+            - {AttributeName: gsi1sk, KeyType: RANGE}
+          Projection: {ProjectionType: ALL}
+
+  DeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ProjectName}-${Environment}-dlq'
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+  WorkQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ProjectName}-${Environment}-trabajo'
+      VisibilityTimeout: 360
+      MessageRetentionPeriod: 345600
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DeadLetterQueue.Arn
+        maxReceiveCount: 5
+
+  ConversationDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ProjectName}-${Environment}-conversaciones-dlq.fifo'
+      FifoQueue: true
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+  ConversationQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ProjectName}-${Environment}-conversaciones.fifo'
+      FifoQueue: true
+      ContentBasedDeduplication: false
+      DeduplicationScope: messageGroup
+      FifoThroughputLimit: perMessageGroupId
+      VisibilityTimeout: 360
+      MessageRetentionPeriod: 345600
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ConversationDeadLetterQueue.Arn
+        maxReceiveCount: 5
+
+  CampaignDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ProjectName}-${Environment}-campanas-dlq.fifo'
+      FifoQueue: true
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+  CampaignQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ProjectName}-${Environment}-campanas.fifo'
+      FifoQueue: true
+      ContentBasedDeduplication: false
+      DeduplicationScope: messageGroup
+      FifoThroughputLimit: perMessageGroupId
+      VisibilityTimeout: 360
+      MessageRetentionPeriod: 345600
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt CampaignDeadLetterQueue.Arn
+        maxReceiveCount: 5
+
+  MediaDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ProjectName}-${Environment}-multimedia-dlq'
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+  MediaQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ProjectName}-${Environment}-multimedia'
+      VisibilityTimeout: 360
+      MessageRetentionPeriod: 345600
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt MediaDeadLetterQueue.Arn
+        maxReceiveCount: 5
+
+  OutboundTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub '${ProjectName}-${Environment}-connect-salida'
+      KmsMasterKeyId: !GetAtt DataKey.Arn
+  OutboundSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref OutboundTopic
+      Protocol: sqs
+      Endpoint: !GetAtt WorkQueue.Arn
+      RawMessageDelivery: false
+  OutboundTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics: [!Ref OutboundTopic]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: ConnectPublishesOnlyFromThisInstance
+            Effect: Allow
+            Principal: {Service: connect.amazonaws.com}
+            Action: sns:Publish
+            Resource: !Ref OutboundTopic
+            Condition:
+              StringEquals: {aws:SourceAccount: !Ref AWS::AccountId}
+              ArnLike:
+                aws:SourceArn: !Sub 'arn:${AWS::Partition}:connect:${AWS::Region}:${AWS::AccountId}:instance/${ConnectInstanceId}*'
+  WorkQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues: [!Ref WorkQueue, !Ref MediaQueue]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: SnsDelivery
+            Effect: Allow
+            Principal: {Service: sns.amazonaws.com}
+            Action: sqs:SendMessage
+            Resource: !GetAtt WorkQueue.Arn
+            Condition: {ArnEquals: {aws:SourceArn: !Ref OutboundTopic}}
+          - Sid: EventBridgeDelivery
+            Effect: Allow
+            Principal: {Service: events.amazonaws.com}
+            Action: sqs:SendMessage
+            Resource: !GetAtt MediaQueue.Arn
+            Condition: {ArnEquals: {aws:SourceArn: !GetAtt TranscribeRule.Arn}}
+
+  Api:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: '$default'
+      CorsConfiguration:
+        # No se usan cookies. Las rutas administrativas validan además el origen,
+        # un token de corta duración y el modo de autenticación configurado.
+        AllowOrigins: ['*']
+        AllowHeaders: [authorization, content-type, x-hub-signature-256]
+        AllowMethods: [GET, POST, OPTIONS]
+      AccessLogSettings:
+        # API Gateway stores the log-group ARN without the trailing `:*` returned by GetAtt Arn.
+        DestinationArn: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/apigateway/${ProjectName}-${Environment}'
+        Format: '{"requestId":"$context.requestId","routeKey":"$context.routeKey","status":"$context.status","responseLength":"$context.responseLength"}'
+  ApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub '/aws/apigateway/${ProjectName}-${Environment}'
+      RetentionInDays: !Ref LogRetentionDays
+      KmsKeyId: !GetAtt DataKey.Arn
+
+  IngressFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-lambda-redes-sociales-ingreso'
+      CodeUri: src/ingress/
+      Handler: app.lambda_handler
+      MemorySize: 256
+      Timeout: 30
+      ReservedConcurrentExecutions: 20
+      Environment:
+        Variables:
+          WORK_QUEUE_URL: !Ref WorkQueue
+          CONVERSATION_QUEUE_URL: !Ref ConversationQueue
+          CAMPAIGN_QUEUE_URL: !Ref CampaignQueue
+          WHATSAPP_SECRET_ARN: !Ref WhatsAppSecretArn
+          MEDIA_BUCKET: !Ref MediaBucket
+          KMS_KEY_ARN: !GetAtt DataKey.Arn
+          STATE_TABLE: !Ref StateTable
+          CONNECT_INSTANCE_ID: !Ref ConnectInstanceId
+          ADMIN_APP_NAMESPACE: !Ref AdminAppNamespace
+          ADMIN_APP_AUTH_MODE: !Ref AdminAppAuthMode
+          ADMIN_APP_ORIGIN: !Sub 'https://${AdminAppDistribution.DomainName}'
+          DEVELOPER_ROUTING_PROFILE_IDS: !Ref DeveloperRoutingProfileIds
+          DEVELOPER_SECURITY_PROFILE_IDS: !Ref DeveloperSecurityProfileIds
+          CONNECT_SESSION_SECONDS: '900'
+          MEDIA_REDIRECT_SECONDS: '300'
+          META_GRAPH_VERSION: !Ref MetaGraphVersion
+      Policies:
+        - SQSSendMessagePolicy: {QueueName: !GetAtt WorkQueue.QueueName}
+        - SQSSendMessagePolicy: {QueueName: !GetAtt ConversationQueue.QueueName}
+        - SQSSendMessagePolicy: {QueueName: !GetAtt CampaignQueue.QueueName}
+        - AWSSecretsManagerGetSecretValuePolicy: {SecretArn: !Ref WhatsAppSecretArn}
+        - S3WritePolicy: {BucketName: !Ref MediaBucket}
+        - S3ReadPolicy: {BucketName: !Ref MediaBucket}
+        - DynamoDBCrudPolicy: {TableName: !Ref StateTable}
+        - Statement:
+            - Effect: Allow
+              Action: [kms:Decrypt, kms:Encrypt, kms:GenerateDataKey, kms:DescribeKey]
+              Resource: !GetAtt DataKey.Arn
+            - Effect: Allow
+              Action:
+                - connect:DescribeUser
+                - connect:ListSecurityProfiles
+                - connect:ListSecurityProfileApplications
+                - connect:ListSecurityProfilePermissions
+                - connect:UpdateSecurityProfile
+              Resource: '*'
+      Events:
+        VerifyWebhook:
+          Type: HttpApi
+          Properties: {ApiId: !Ref Api, Path: /webhook/whatsapp, Method: GET}
+        ReceiveWebhook:
+          Type: HttpApi
+          Properties: {ApiId: !Ref Api, Path: /webhook/whatsapp, Method: POST}
+        AdminSend:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /admin/send
+            Method: POST
+        AdminCampaign:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /admin/campaign
+            Method: POST
+        AdminUpload:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /admin/upload
+            Method: POST
+        AdminResourceGet:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /admin/{resource}
+            Method: GET
+        AdminResourcePost:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /admin/{resource}
+            Method: POST
+        MediaRedirect:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /m/{token}
+            Method: GET
+
+  IngressLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ProjectName}-${Environment}-lambda-redes-sociales-ingreso'
+      RetentionInDays: !Ref LogRetentionDays
+      KmsKeyId: !GetAtt DataKey.Arn
+
+  TranscribeDataRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-${Environment}-transcribe-datos'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: transcribe.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: EncryptedMediaAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [s3:GetObject, s3:PutObject]
+                Resource: !Sub '${MediaBucket.Arn}/*'
+              - Effect: Allow
+                Action: [s3:GetBucketLocation, s3:ListBucket]
+                Resource: !GetAtt MediaBucket.Arn
+              - Effect: Allow
+                Action: [kms:Decrypt, kms:Encrypt, kms:GenerateDataKey, kms:DescribeKey]
+                Resource: !GetAtt DataKey.Arn
+
+  ProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-lambda-redes-sociales-procesador'
+      CodeUri: src/processor/
+      Handler: app.lambda_handler
+      MemorySize: 1024
+      Timeout: 300
+      ReservedConcurrentExecutions: 20
+      Environment:
+        Variables:
+          WORKER_MODE: conversation
+          STATE_TABLE: !Ref StateTable
+          CONNECT_INSTANCE_ID: !Ref ConnectInstanceId
+          DEFAULT_CONTACT_FLOW_ID: !If
+            - CreateManagedDefaultFlow
+            - !Select [1, !Split ['/contact-flow/', !GetAtt DefaultConnectContactFlow.ContactFlowArn]]
+            - !Ref DefaultContactFlowId
+          DEVELOPMENT_CONTACT_FLOW_ID: !Ref DevelopmentContactFlowId
+          DEVELOPMENT_PHONE_NUMBERS: !Ref DevelopmentPhoneNumbers
+          TEMPLATE_DSL_MODE: !Ref TemplateDslMode
+          TEMPLATE_DSL_PHONE_NUMBERS: !Ref TemplateDslPhoneNumbers
+          WHATSAPP_SECRET_ARN: !Ref WhatsAppSecretArn
+          WORK_QUEUE_URL: !Ref WorkQueue
+          CONVERSATION_QUEUE_URL: !Ref ConversationQueue
+          MEDIA_QUEUE_URL: !Ref MediaQueue
+          OUTBOUND_TOPIC_ARN: !Ref OutboundTopic
+          MEDIA_BUCKET: !Ref MediaBucket
+          KMS_KEY_ARN: !GetAtt DataKey.Arn
+          META_GRAPH_VERSION: !Ref MetaGraphVersion
+          SESSION_TTL_SECONDS: !Ref SessionTtlSeconds
+          MEDIA_LINK_BASE_URL: !Sub 'https://${MediaRedirectDistribution.DomainName}/m'
+          MEDIA_LINK_SECONDS: '86400'
+          MAX_MEDIA_BYTES: '20971520'
+          TRANSCRIBE_DATA_ROLE_ARN: !GetAtt TranscribeDataRole.Arn
+          METRICS_NAMESPACE: !Sub '${ProjectName}/${Environment}/Messaging'
+      Policies:
+        - DynamoDBCrudPolicy: {TableName: !Ref StateTable}
+        - AWSSecretsManagerGetSecretValuePolicy: {SecretArn: !Ref WhatsAppSecretArn}
+        - SQSSendMessagePolicy: {QueueName: !GetAtt ConversationQueue.QueueName}
+        - SQSSendMessagePolicy: {QueueName: !GetAtt MediaQueue.QueueName}
+        - Statement:
+            - Effect: Allow
+              Action: [kms:Decrypt, kms:Encrypt, kms:GenerateDataKey, kms:DescribeKey]
+              Resource: !GetAtt DataKey.Arn
+            - Effect: Allow
+              Action: [connect:StartChatContact, connect:DescribeContact, connect:StartContactStreaming, connect:StopContact]
+              Resource: '*'
+            - Effect: Allow
+              Action: [connectparticipant:CreateParticipantConnection, connectparticipant:SendMessage,
+                connectparticipant:GetAttachment]
+              Resource: '*'
+      Events:
+        Work:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt WorkQueue.Arn
+            BatchSize: 5
+            FunctionResponseTypes: [ReportBatchItemFailures]
+            ScalingConfig: {MaximumConcurrency: 20}
+        Conversations:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt ConversationQueue.Arn
+            BatchSize: 10
+            FunctionResponseTypes: [ReportBatchItemFailures]
+            ScalingConfig: {MaximumConcurrency: 20}
+
+  ProcessorLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ProjectName}-${Environment}-lambda-redes-sociales-procesador'
+      RetentionInDays: !Ref LogRetentionDays
+      KmsKeyId: !GetAtt DataKey.Arn
+
+  CampaignFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-lambda-redes-sociales-campanas'
+      CodeUri: src/processor/
+      Handler: app.lambda_handler
+      MemorySize: 512
+      Timeout: 120
+      ReservedConcurrentExecutions: 5
+      Environment:
+        Variables:
+          WORKER_MODE: campaign
+          STATE_TABLE: !Ref StateTable
+          WHATSAPP_SECRET_ARN: !Ref WhatsAppSecretArn
+          MEDIA_BUCKET: !Ref MediaBucket
+          META_GRAPH_VERSION: !Ref MetaGraphVersion
+          METRICS_NAMESPACE: !Sub '${ProjectName}/${Environment}/Messaging'
+      Policies:
+        - DynamoDBCrudPolicy: {TableName: !Ref StateTable}
+        - S3ReadPolicy: {BucketName: !Ref MediaBucket}
+        - AWSSecretsManagerGetSecretValuePolicy: {SecretArn: !Ref WhatsAppSecretArn}
+        - Statement:
+            - Effect: Allow
+              Action: [kms:Decrypt, kms:Encrypt, kms:GenerateDataKey, kms:DescribeKey]
+              Resource: !GetAtt DataKey.Arn
+      Events:
+        Campaigns:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt CampaignQueue.Arn
+            BatchSize: 5
+            FunctionResponseTypes: [ReportBatchItemFailures]
+            ScalingConfig: {MaximumConcurrency: 5}
+
+  CampaignLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ProjectName}-${Environment}-lambda-redes-sociales-campanas'
+      RetentionInDays: !Ref LogRetentionDays
+      KmsKeyId: !GetAtt DataKey.Arn
+
+  MediaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-lambda-redes-sociales-multimedia'
+      CodeUri: src/processor/
+      Handler: app.lambda_handler
+      MemorySize: 1024
+      Timeout: 300
+      ReservedConcurrentExecutions: 10
+      Environment:
+        Variables:
+          WORKER_MODE: media
+          STATE_TABLE: !Ref StateTable
+          WHATSAPP_SECRET_ARN: !Ref WhatsAppSecretArn
+          MEDIA_BUCKET: !Ref MediaBucket
+          KMS_KEY_ARN: !GetAtt DataKey.Arn
+          META_GRAPH_VERSION: !Ref MetaGraphVersion
+          OCR_BEDROCK_MODEL_ID: !Ref OcrBedrockModelId
+          OCR_MIN_CONFIDENCE: '80'
+          MAX_MEDIA_BYTES: '20971520'
+          TRANSCRIBE_DATA_ROLE_ARN: !GetAtt TranscribeDataRole.Arn
+          TRANSCRIBE_LANGUAGE_CODE: !Ref TranscribeLanguageCode
+          METRICS_NAMESPACE: !Sub '${ProjectName}/${Environment}/Messaging'
+      Policies:
+        - DynamoDBCrudPolicy: {TableName: !Ref StateTable}
+        - S3CrudPolicy: {BucketName: !Ref MediaBucket}
+        - AWSSecretsManagerGetSecretValuePolicy: {SecretArn: !Ref WhatsAppSecretArn}
+        - Statement:
+            - Effect: Allow
+              Action: [textract:DetectDocumentText, textract:AnalyzeDocument]
+              Resource: '*'
+            - Effect: Allow
+              Action: bedrock:InvokeModel
+              Resource:
+                - !Sub 'arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/${OcrBedrockModelId}'
+                - !Sub 'arn:${AWS::Partition}:bedrock:*::foundation-model/amazon.nova-2-lite-v1:0'
+            - Effect: Allow
+              Action: [connectparticipant:CreateParticipantConnection, connectparticipant:SendMessage]
+              Resource: '*'
+            - Effect: Allow
+              Action: transcribe:StartTranscriptionJob
+              Resource: '*'
+            - Effect: Allow
+              Action: iam:PassRole
+              Resource: !GetAtt TranscribeDataRole.Arn
+              Condition:
+                StringEquals: {iam:PassedToService: transcribe.amazonaws.com}
+            - Effect: Allow
+              Action: [kms:Decrypt, kms:Encrypt, kms:GenerateDataKey, kms:DescribeKey]
+              Resource: !GetAtt DataKey.Arn
+      Events:
+        Media:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt MediaQueue.Arn
+            BatchSize: 2
+            FunctionResponseTypes: [ReportBatchItemFailures]
+            ScalingConfig: {MaximumConcurrency: 10}
+
+  MediaLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ProjectName}-${Environment}-lambda-redes-sociales-multimedia'
+      RetentionInDays: !Ref LogRetentionDays
+      KmsKeyId: !GetAtt DataKey.Arn
+
+  TranscribeRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-transcripcion-finalizada'
+      EventPattern:
+        source: [aws.transcribe]
+        detail-type: [Transcribe Job State Change]
+        detail:
+          TranscriptionJobStatus: [COMPLETED, FAILED]
+          TranscriptionJobName:
+            - prefix: !Sub '${ProjectName}-${Environment}-wa-'
+      Targets:
+        - Arn: !GetAtt MediaQueue.Arn
+          Id: MediaQueue
+          InputTransformer:
+            InputPathsMap: {detail: '$.detail'}
+            InputTemplate: '{"source":"aws.transcribe","detail":<detail>}'
+
+  AttachmentsStorage:
+    Type: AWS::Connect::InstanceStorageConfig
+    Condition: CreateAttachmentsStorage
+    Metadata:
+      cfn-lint:
+        config:
+          # La especificación local de cfn-lint está atrasada. CloudFormation y la
+          # documentación vigente de AWS sí admiten ATTACHMENTS para este recurso.
+          ignore_checks: [E3030]
+    Properties:
+      InstanceArn: !Sub 'arn:${AWS::Partition}:connect:${AWS::Region}:${AWS::AccountId}:instance/${ConnectInstanceId}'
+      ResourceType: ATTACHMENTS
+      StorageType: S3
+      S3Config:
+        BucketName: !Ref MediaBucket
+        BucketPrefix: connect-attachments
+        EncryptionConfig:
+          EncryptionType: KMS
+          KeyId: !GetAtt DataKey.Arn
+
+  ConnectContextModule:
+    Type: AWS::Connect::ContactFlowModule
+    Condition: CreateContextModule
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      InstanceArn: !Sub 'arn:${AWS::Partition}:connect:${AWS::Region}:${AWS::AccountId}:instance/${ConnectInstanceId}'
+      Name: !Ref ConnectContextModuleName
+      Description: Marca el contrato social antes de continuar por el flujo de negocio.
+      State: ACTIVE
+      Content: |
+        {
+          "Version": "2019-10-30",
+          "StartAction": "SetSocialContext",
+          "Metadata": {
+            "EntryPointPosition": {"x": 40, "y": 40},
+            "ActionMetadata": {
+              "SetSocialContext": {"Position": {"x": 220, "y": 40}},
+              "ReturnToFlow": {"Position": {"x": 500, "y": 40}}
+            }
+          },
+          "Actions": [
+            {
+              "Identifier": "SetSocialContext",
+              "Type": "UpdateContactAttributes",
+              "Parameters": {
+                "Attributes": {
+                  "social_context_version": "1.0",
+                  "social_context_status": "READY"
+                },
+                "TargetContact": "Current"
+              },
+              "Transitions": {
+                "NextAction": "ReturnToFlow",
+                "Errors": [{"NextAction": "ReturnToFlow", "ErrorType": "NoMatchingError"}]
+              }
+            },
+            {
+              "Identifier": "ReturnToFlow",
+              "Type": "EndFlowModuleExecution",
+              "Parameters": {},
+              "Transitions": {}
+            }
+          ]
+        }
+      Tags:
+        - {Key: Application, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  DefaultConnectContactFlow:
+    Type: AWS::Connect::ContactFlow
+    Condition: CreateManagedDefaultFlow
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      InstanceArn: !Sub 'arn:${AWS::Partition}:connect:${AWS::Region}:${AWS::AccountId}:instance/${ConnectInstanceId}'
+      Name: !Ref ManagedContactFlowName
+      Description: Flow mínimo y portable para recibir el chat social y transferirlo a una cola existente.
+      State: ACTIVE
+      Type: CONTACT_FLOW
+      Content: !Sub |
+        {
+          "Version": "2019-10-30",
+          "StartAction": "InitializeSocialContext",
+          "Metadata": {
+            "EntryPointPosition": {"x": 40, "y": 40},
+            "ActionMetadata": {
+              "InitializeSocialContext": {"Position": {"x": 220, "y": 40}},
+              "SetWorkingQueue": {"Position": {"x": 500, "y": 40}},
+              "TransferToAgentQueue": {"Position": {"x": 780, "y": 40}},
+              "EndContact": {"Position": {"x": 1060, "y": 40}}
+            }
+          },
+          "Actions": [
+            {
+              "Identifier": "InitializeSocialContext",
+              "Type": "InvokeFlowModule",
+              "Parameters": {"FlowModuleId": "${ConnectContextModule}"},
+              "Transitions": {
+                "NextAction": "SetWorkingQueue",
+                "Errors": [
+                  {"NextAction": "SetWorkingQueue", "ErrorType": "NoMatchingCondition"},
+                  {"NextAction": "SetWorkingQueue", "ErrorType": "NoMatchingError"}
+                ]
+              }
+            },
+            {
+              "Identifier": "SetWorkingQueue",
+              "Type": "UpdateContactTargetQueue",
+              "Parameters": {
+                "QueueId": "arn:${AWS::Partition}:connect:${AWS::Region}:${AWS::AccountId}:instance/${ConnectInstanceId}/queue/${ConnectQueueId}"
+              },
+              "Transitions": {
+                "NextAction": "TransferToAgentQueue",
+                "Errors": [{"NextAction": "EndContact", "ErrorType": "NoMatchingError"}]
+              }
+            },
+            {
+              "Identifier": "TransferToAgentQueue",
+              "Type": "TransferContactToQueue",
+              "Parameters": {},
+              "Transitions": {
+                "NextAction": "EndContact",
+                "Errors": [
+                  {"NextAction": "EndContact", "ErrorType": "QueueAtCapacity"},
+                  {"NextAction": "EndContact", "ErrorType": "NoMatchingError"}
+                ]
+              }
+            },
+            {
+              "Identifier": "EndContact",
+              "Type": "DisconnectParticipant",
+              "Parameters": {},
+              "Transitions": {}
+            }
+          ]
+        }
+      Tags:
+        - {Key: Application, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  AdminAppBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub '${ProjectName}-${Environment}-app-${AWS::AccountId}-${AWS::Region}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: {SSEAlgorithm: AES256}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules: [{ObjectOwnership: BucketOwnerEnforced}]
+      VersioningConfiguration: {Status: Enabled}
+  AdminAppOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub '${ProjectName}-${Environment}-app-oac'
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+  AdminAppHeaders:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: !Sub '${ProjectName}-${Environment}-app-seguridad'
+        SecurityHeadersConfig:
+          ContentSecurityPolicy:
+            ContentSecurityPolicy: !Sub "default-src 'self'; connect-src 'self' https://*.amazonaws.com https://*.execute-api.${AWS::Region}.${AWS::URLSuffix}; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors https://*.my.connect.aws https://*.awsapps.com"
+            Override: true
+          ContentTypeOptions: {Override: true}
+          ReferrerPolicy: {ReferrerPolicy: strict-origin-when-cross-origin, Override: true}
+          StrictTransportSecurity: {AccessControlMaxAgeSec: 31536000, IncludeSubdomains: true, Override: true, Preload: true}
+  AdminAppDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Comment: !Sub '${ProjectName}-${Environment} Amazon Connect 3P'
+        Enabled: true
+        HttpVersion: http2and3
+        DefaultRootObject: index.html
+        Origins:
+          - Id: AdminAppS3
+            DomainName: !GetAtt AdminAppBucket.RegionalDomainName
+            OriginAccessControlId: !Ref AdminAppOriginAccessControl
+            S3OriginConfig: {OriginAccessIdentity: ''}
+        DefaultCacheBehavior:
+          TargetOriginId: AdminAppS3
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachedMethods: [GET, HEAD, OPTIONS]
+          Compress: true
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          ResponseHeadersPolicyId: !Ref AdminAppHeaders
+        CustomErrorResponses:
+          - {ErrorCode: 403, ResponseCode: 200, ResponsePagePath: /index.html, ErrorCachingMinTTL: 0}
+          - {ErrorCode: 404, ResponseCode: 200, ResponsePagePath: /index.html, ErrorCachingMinTTL: 0}
+  MediaRedirectCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: !Sub '${ProjectName}-${Environment}-multimedia-sin-cache'
+        Comment: Los enlaces cortos siempre validan vigencia antes de redirigir a S3.
+        DefaultTTL: 0
+        MaxTTL: 0
+        MinTTL: 0
+        ParametersInCacheKeyAndForwardedToOrigin:
+          EnableAcceptEncodingBrotli: false
+          EnableAcceptEncodingGzip: false
+          CookiesConfig: {CookieBehavior: none}
+          HeadersConfig: {HeaderBehavior: none}
+          QueryStringsConfig: {QueryStringBehavior: none}
+  MediaRedirectDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Comment: !Sub '${ProjectName}-${Environment} enlaces temporales de multimedia'
+        Enabled: true
+        HttpVersion: http2and3
+        PriceClass: PriceClass_100
+        Origins:
+          - Id: MediaRedirectApi
+            DomainName: !Sub '${Api}.execute-api.${AWS::Region}.${AWS::URLSuffix}'
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols: [TLSv1.2]
+        DefaultCacheBehavior:
+          TargetOriginId: MediaRedirectApi
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachedMethods: [GET, HEAD]
+          Compress: false
+          CachePolicyId: !Ref MediaRedirectCachePolicy
+  AdminAppBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref AdminAppBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: cloudfront.amazonaws.com}
+            Action: s3:GetObject
+            Resource: !Sub '${AdminAppBucket.Arn}/*'
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${AdminAppDistribution}'
+  AdminConnectApplication:
+    Type: AWS::AppIntegrations::Application
+    Properties:
+      Name: !Ref AdminAppName
+      Namespace: !Ref AdminAppNamespace
+      Description: !Sub Consola de cotizaciones, plantillas, campañas y encuestas de ${BusinessDisplayName} para Amazon Connect.
+      ApplicationType: STANDARD
+      ApplicationSourceConfig:
+        ExternalUrlConfig:
+          AccessUrl: !Sub 'https://${AdminAppDistribution.DomainName}'
+      ApplicationConfig:
+        ContactHandling: {Scope: CROSS_CONTACTS}
+      Permissions:
+        - User.Details.View
+        - User.Configuration.View
+        - User.Status.View
+        - Contact.Details.View
+        - Contact.CustomerDetails.View
+        - Contact.Attributes.View
+  AdminConnectAssociation:
+    Type: AWS::Connect::IntegrationAssociation
+    Properties:
+      InstanceId: !Sub 'arn:${AWS::Partition}:connect:${AWS::Region}:${AWS::AccountId}:instance/${ConnectInstanceId}'
+      IntegrationArn: !GetAtt AdminConnectApplication.ApplicationArn
+      IntegrationType: APPLICATION
+
+  PlatformResourceGroup:
+    Type: AWS::ResourceGroups::Group
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-recursos'
+      Description: !Sub 'Operational resources for ${ProjectName}-${Environment}'
+      ResourceQuery:
+        Type: CLOUDFORMATION_STACK_1_0
+      Tags:
+        - {Key: Application, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  TaggedPlatformResourceGroup:
+    Type: AWS::ResourceGroups::Group
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-etiquetados'
+      Description: Tagged application resources including Amazon Connect flows and modules.
+      ResourceQuery:
+        Type: TAG_FILTERS_1_0
+        Query:
+          ResourceTypeFilters: [AWS::AllSupported]
+          TagFilters:
+            - Key: Application
+              Values: [!Ref ProjectName]
+            - Key: Environment
+              Values: [!Ref Environment]
+      Tags:
+        - {Key: Application, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  AlarmTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub '${ProjectName}-${Environment}-alarmas'
+      KmsMasterKeyId: !GetAtt DataKey.Arn
+  AlarmSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasAlarmEmail
+    Properties: {TopicArn: !Ref AlarmTopic, Protocol: email, Endpoint: !Ref AlarmEmail}
+  DeadLetterAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-mensajes-fallidos'
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions: [{Name: QueueName, Value: !GetAtt DeadLetterQueue.QueueName}]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+  ConversationDeadLetterAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-conversaciones-fallidas'
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions: [{Name: QueueName, Value: !GetAtt ConversationDeadLetterQueue.QueueName}]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+  CampaignDeadLetterAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-campanas-fallidas'
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions: [{Name: QueueName, Value: !GetAtt CampaignDeadLetterQueue.QueueName}]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+  MediaDeadLetterAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-multimedia-fallida'
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions: [{Name: QueueName, Value: !GetAtt MediaDeadLetterQueue.QueueName}]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+  ConversationAgeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-conversaciones-retrasadas'
+      Namespace: AWS/SQS
+      MetricName: ApproximateAgeOfOldestMessage
+      Dimensions: [{Name: QueueName, Value: !GetAtt ConversationQueue.QueueName}]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 3
+      Threshold: 120
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+  CampaignAgeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-campanas-retrasadas'
+      Namespace: AWS/SQS
+      MetricName: ApproximateAgeOfOldestMessage
+      Dimensions: [{Name: QueueName, Value: !GetAtt CampaignQueue.QueueName}]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 5
+      Threshold: 300
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+  MediaAgeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-multimedia-retrasada'
+      Namespace: AWS/SQS
+      MetricName: ApproximateAgeOfOldestMessage
+      Dimensions: [{Name: QueueName, Value: !GetAtt MediaQueue.QueueName}]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 5
+      Threshold: 300
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+  IngressErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-ingreso-errores'
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [{Name: FunctionName, Value: !Ref IngressFunction}]
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+  ProcessorErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-conversacion-errores'
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [{Name: FunctionName, Value: !Ref ProcessorFunction}]
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+  CampaignErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-campanas-errores'
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [{Name: FunctionName, Value: !Ref CampaignFunction}]
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+  MediaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-multimedia-errores'
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [{Name: FunctionName, Value: !Ref MediaFunction}]
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+  ApiServerErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-api-5xx'
+      Namespace: AWS/ApiGateway
+      MetricName: 5xx
+      Dimensions:
+        - {Name: ApiId, Value: !Ref Api}
+        - {Name: Stage, Value: '$default'}
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+  OperationsDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub '${ProjectName}-${Environment}-operacion'
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "x": 0, "y": 0, "width": 12, "height": 7,
+              "properties": {
+                "region": "${AWS::Region}",
+                "title": "Invocaciones y errores Lambda",
+                "view": "timeSeries",
+                "stacked": false,
+                "metrics": [
+                  ["AWS/Lambda", "Invocations", "FunctionName", "${IngressFunction}", {"label": "Ingreso"}],
+                  [".", "Errors", ".", ".", {"label": "Errores ingreso"}],
+                  ["AWS/Lambda", "Invocations", "FunctionName", "${ProcessorFunction}", {"label": "Conversación"}],
+                  [".", "Errors", ".", ".", {"label": "Errores conversación"}],
+                  ["AWS/Lambda", "Invocations", "FunctionName", "${CampaignFunction}", {"label": "Campañas"}],
+                  [".", "Errors", ".", ".", {"label": "Errores campañas"}],
+                  ["AWS/Lambda", "Invocations", "FunctionName", "${MediaFunction}", {"label": "Multimedia"}],
+                  [".", "Errors", ".", ".", {"label": "Errores multimedia"}]
+                ]
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12, "y": 0, "width": 12, "height": 7,
+              "properties": {
+                "region": "${AWS::Region}",
+                "title": "Edad del mensaje más antiguo",
+                "view": "timeSeries",
+                "metrics": [
+                  ["AWS/SQS", "ApproximateAgeOfOldestMessage", "QueueName", "${ConversationQueue.QueueName}", {"label": "Conversaciones"}],
+                  [".", ".", ".", "${CampaignQueue.QueueName}", {"label": "Campañas"}],
+                  [".", ".", ".", "${MediaQueue.QueueName}", {"label": "Multimedia"}],
+                  [".", ".", ".", "${WorkQueue.QueueName}", {"label": "Salida Connect"}]
+                ]
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0, "y": 7, "width": 24, "height": 6,
+              "properties": {
+                "region": "${AWS::Region}",
+                "title": "Mensajes en DLQ",
+                "view": "singleValue",
+                "metrics": [
+                  ["AWS/SQS", "ApproximateNumberOfMessagesVisible", "QueueName", "${DeadLetterQueue.QueueName}", {"label": "Puente"}],
+                  [".", ".", ".", "${ConversationDeadLetterQueue.QueueName}", {"label": "Conversaciones"}],
+                  [".", ".", ".", "${CampaignDeadLetterQueue.QueueName}", {"label": "Campañas"}],
+                  [".", ".", ".", "${MediaDeadLetterQueue.QueueName}", {"label": "Multimedia"}]
+                ]
+              }
+            }
+          ]
+        }
+
+Outputs:
+  DeploymentRevision:
+    Description: Revisión Git registrada en todas las funciones del stack.
+    Value: !Ref DeploymentRevision
+  WebhookUrl:
+    Value: !Sub 'https://${Api}.execute-api.${AWS::Region}.${AWS::URLSuffix}/webhook/whatsapp'
+  AdminApiBaseUrl:
+    Value: !Sub 'https://${Api}.execute-api.${AWS::Region}.${AWS::URLSuffix}/admin'
+  ConnectStreamingTopicArn:
+    Value: !Ref OutboundTopic
+  MediaBucketName:
+    Value: !Ref MediaBucket
+  StateTableName:
+    Value: !Ref StateTable
+  AdminAppUrl:
+    Value: !Sub 'https://${AdminAppDistribution.DomainName}'
+  AdminAppBucketName:
+    Value: !Ref AdminAppBucket
+  AdminAppDistributionId:
+    Value: !Ref AdminAppDistribution
+  MediaPreviewBaseUrl:
+    Value: !Sub 'https://${MediaRedirectDistribution.DomainName}/m'
+  AdminConnectApplicationArn:
+    Value: !GetAtt AdminConnectApplication.ApplicationArn
+  ConversationQueueUrl:
+    Value: !Ref ConversationQueue
+  CampaignQueueUrl:
+    Value: !Ref CampaignQueue
+  MediaQueueUrl:
+    Value: !Ref MediaQueue
+  ConnectContextModuleArn:
+    Condition: CreateContextModule
+    Value: !Ref ConnectContextModule
+  ManagedDefaultContactFlowArn:
+    Condition: CreateManagedDefaultFlow
+    Value: !GetAtt DefaultConnectContactFlow.ContactFlowArn
+  EffectiveDefaultContactFlowId:
+    Value: !If
+      - CreateManagedDefaultFlow
+      - !Select [1, !Split ['/contact-flow/', !GetAtt DefaultConnectContactFlow.ContactFlowArn]]
+      - !Ref DefaultContactFlowId
+  PlatformResourceGroupArn:
+    Value: !GetAtt PlatformResourceGroup.Arn
+  TaggedPlatformResourceGroupArn:
+    Value: !GetAtt TaggedPlatformResourceGroup.Arn
+  OperationsDashboardName:
+    Value: !Ref OperationsDashboard
+  IngressLogGroupName:
+    Value: !Ref IngressLogGroup
+  ProcessorLogGroupName:
+    Value: !Ref ProcessorLogGroup
+  CampaignLogGroupName:
+    Value: !Ref CampaignLogGroup
+  MediaLogGroupName:
+    Value: !Ref MediaLogGroup

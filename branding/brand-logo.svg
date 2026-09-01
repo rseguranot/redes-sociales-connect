@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 112" role="img" aria-labelledby="title description">
+  <title id="title">Redes Sociales Connect</title>
+  <desc id="description">Marca neutral incluida como ejemplo reemplazable.</desc>
+  <rect width="480" height="112" rx="18" fill="#0b2038"/>
+  <g fill="none" stroke="#39c58a" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M44 31h65a15 15 0 0 1 15 15v24a15 15 0 0 1-15 15H78L55 99V85H44a15 15 0 0 1-15-15V46a15 15 0 0 1 15-15Z"/>
+    <path d="M62 53h29M62 68h43"/>
+  </g>
+  <text x="151" y="53" fill="#fff" font-family="Arial, Helvetica, sans-serif" font-size="27" font-weight="700">REDES SOCIALES</text>
+  <text x="151" y="82" fill="#c8d6e5" font-family="Arial, Helvetica, sans-serif" font-size="21" letter-spacing="2">CONNECT</text>
+</svg>

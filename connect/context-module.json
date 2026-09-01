@@ -1,0 +1,52 @@
+{
+  "Version": "2019-10-30",
+  "StartAction": "SetSocialContext",
+  "Metadata": {
+    "EntryPointPosition": {
+      "x": 40,
+      "y": 40
+    },
+    "ActionMetadata": {
+      "SetSocialContext": {
+        "Position": {
+          "x": 220,
+          "y": 40
+        }
+      },
+      "ReturnToFlow": {
+        "Position": {
+          "x": 500,
+          "y": 40
+        }
+      }
+    }
+  },
+  "Actions": [
+    {
+      "Identifier": "SetSocialContext",
+      "Type": "UpdateContactAttributes",
+      "Parameters": {
+        "Attributes": {
+          "social_context_version": "1.0",
+          "social_context_status": "READY"
+        },
+        "TargetContact": "Current"
+      },
+      "Transitions": {
+        "NextAction": "ReturnToFlow",
+        "Errors": [
+          {
+            "NextAction": "ReturnToFlow",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "ReturnToFlow",
+      "Type": "EndFlowModuleExecution",
+      "Parameters": {},
+      "Transitions": {}
+    }
+  ]
+}
