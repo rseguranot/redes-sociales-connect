@@ -47,6 +47,16 @@ Revise cada coincidencia: nombres de variables/documentación son válidos; valo
 - Dashboard existe; alarmas en `OK`; suscripción confirmada.
 - El Resource Group basado en stack lista la aplicación y el grupo basado en tags incluye los recursos compatibles del ambiente, incluidos flow/módulo Connect etiquetados.
 
+## 2.1 Meta antes de la prueba real
+
+- Callback activo coincide exactamente con `WebhookUrl`.
+- Verificación `GET` devuelve el challenge; `POST` firmado se acepta y `POST` sin firma se rechaza.
+- `/{WABA_ID}/subscribed_apps` contiene el App ID esperado; una suscripción global de campos no sustituye este vínculo.
+- Número permanece verificado, aprobado y conectado a Cloud API.
+- Política de privacidad/eliminación de datos y modo de publicación fueron aprobados por el responsable del negocio.
+- Hay método de pago y una plantilla `APPROVED` si la prueba iniciará una conversación fuera de la ventana permitida.
+- Se anotó el callback anterior y se ensayó el rollback antes del corte.
+
 ## 3. Matriz de mensajes
 
 Para cada caso anote hora, ID Meta, contact ID, resultado Connect, resultado de respuesta y estado final:
@@ -68,6 +78,8 @@ Para cada caso anote hora, ID Meta, contact ID, resultado Connect, resultado de 
 | Plantilla aprobada | Respuesta | Obligatorio fuera de ventana |
 
 Incluya archivos pequeños, cercanos al límite y no soportados. Un rechazo claro y sin pérdida/reintento infinito es un resultado válido para un formato no admitido.
+
+Una inyección firmada con formato Meta demuestra el backend y el enrutamiento, pero no sustituye una prueba desde un WhatsApp real. La aceptación final exige al menos un mensaje cliente → número de negocio y una respuesta agente → cliente durante una ventana válida, con IDs y timestamps de ambos lados.
 
 ## 4. Identidad y Connect
 

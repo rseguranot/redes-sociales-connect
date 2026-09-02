@@ -33,6 +33,9 @@ node --version
 - Token de sistema o mecanismo de token adecuado para producción.
 - App secret y verify token propio, aleatorio y no reutilizado.
 - Permisos de la aplicación para administrar/usar los recursos seleccionados.
+- URL pública de política de privacidad e instrucciones de eliminación de datos aprobadas por la organización; no improvise textos legales durante el despliegue.
+- Aplicación en el modo de publicación exigido por Meta para el negocio y los usuarios reales que atenderá.
+- Método de pago/configuración comercial cuando Meta lo exija para conversaciones iniciadas por la empresa.
 - Plantillas aprobadas cuando se iniciarán conversaciones fuera de la ventana permitida.
 
 ### Amazon Connect
@@ -219,9 +222,12 @@ En el producto WhatsApp de la app Meta:
 
 1. Use `WebhookUrl` como callback.
 2. Use el mismo valor de `WA_VERIFY_TOKEN` guardado en Secrets Manager.
-3. Suscriba el campo `messages` del WABA.
-4. Confirme que la validación `GET` devuelve el challenge.
-5. Mantenga documentada la URL anterior para rollback.
+3. Confirme que la validación `GET` devuelve exactamente el challenge y que un `POST` firmado se acepta; un `POST` sin firma debe rechazarse.
+4. Preserve los campos de webhook que la aplicación ya utiliza y asegure al menos `messages`; actualizar el callback de la app y suscribir la app a la WABA son operaciones distintas.
+5. Consulte `/{WABA_ID}/subscribed_apps` y confirme que devuelve el App ID esperado.
+6. Consulte el número y confirme `code_verification_status=VERIFIED`, nombre aprobado y `status=CONNECTED`/Cloud API según el contrato vigente.
+7. No vuelva a registrar un número que ya está conectado. Si todavía requiere registro, hágalo al final, guarde el PIN de verificación en un secreto y tenga preparado el rollback del proveedor anterior.
+8. Mantenga documentada la URL anterior para rollback.
 
 El cambio de callback puede dirigir tráfico real inmediatamente. Prográmelo en una ventana de prueba y no lo mezcle con otros cambios.
 
