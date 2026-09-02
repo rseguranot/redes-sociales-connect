@@ -176,7 +176,9 @@ try {
   }
   # El archivo JSON evita que PowerShell/cmd dividan valores con espacios antes
   # de que SAM CLI los interprete (nombres de flow, aplicación y negocio).
-  $parameterOverridesPath = Join-Path $samBuildDir 'parameter-overrides.json'
+  # JSON es un subconjunto válido de YAML; se usa .yaml porque SAM CLI mantiene
+  # deshabilitado su lector .json para este argumento en versiones actuales.
+  $parameterOverridesPath = Join-Path $samBuildDir 'parameter-overrides.yaml'
   $parameterOverridesJson = $parameterOverrides | ConvertTo-Json -Depth 3 -Compress
   $utf8WithoutBom = New-Object System.Text.UTF8Encoding($false)
   [System.IO.File]::WriteAllText($parameterOverridesPath, $parameterOverridesJson, $utf8WithoutBom)

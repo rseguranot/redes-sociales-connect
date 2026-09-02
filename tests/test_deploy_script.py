@@ -19,6 +19,8 @@ class DeployScriptTests(unittest.TestCase):
             "$deployArguments += @('--parameter-overrides', \"file://$parameterOverridesPath\")",
             script,
         )
+        self.assertIn("'parameter-overrides.yaml'", script)
+        self.assertNotIn("'parameter-overrides.json'", script)
         self.assertIn("[System.IO.File]::WriteAllText", script)
         self.assertNotIn("Set-Content -LiteralPath $parameterOverridesPath", script)
         self.assertNotIn(
