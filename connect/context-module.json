@@ -2,24 +2,25 @@
   "Version": "2019-10-30",
   "StartAction": "SetSocialContext",
   "Metadata": {
-    "EntryPointPosition": {
+    "entryPointPosition": {
       "x": 40,
       "y": 40
     },
     "ActionMetadata": {
       "SetSocialContext": {
-        "Position": {
+        "position": {
           "x": 220,
           "y": 40
         }
       },
       "ReturnToFlow": {
-        "Position": {
+        "position": {
           "x": 500,
           "y": 40
         }
       }
-    }
+    },
+    "Annotations": []
   },
   "Actions": [
     {
@@ -48,5 +49,21 @@
       "Parameters": {},
       "Transitions": {}
     }
-  ]
+  ],
+  "Settings": {
+    "InputParameters": [],
+    "OutputParameters": [],
+    "Transitions": [
+      {
+        "DisplayName": "Success",
+        "ReferenceName": "Success",
+        "Description": ""
+      },
+      {
+        "DisplayName": "Error",
+        "ReferenceName": "Error",
+        "Description": ""
+      }
+    ]
+  }
 }

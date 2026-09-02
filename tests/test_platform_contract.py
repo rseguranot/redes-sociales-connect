@@ -1,4 +1,5 @@
 import pathlib
+import re
 import unittest
 
 
@@ -27,6 +28,11 @@ class PlatformContractTests(unittest.TestCase):
             "MediaLogGroup",
         ):
             self.assertIn(f"  {logical_name}:\n", template.replace("\r\n", "\n"))
+
+    def test_initial_create_rollbacks_do_not_orphan_retained_resources(self):
+        template = (ROOT / "template.yaml").read_text(encoding="utf-8")
+        self.assertGreaterEqual(template.count("DeletionPolicy: RetainExceptOnCreate"), 11)
+        self.assertIsNone(re.search(r"^\s+DeletionPolicy: Retain$", template, re.MULTILINE))
 
     def test_connect_attributes_include_channel_neutral_identity(self):
         processor = (ROOT / "src" / "processor" / "app.py").read_text(encoding="utf-8")

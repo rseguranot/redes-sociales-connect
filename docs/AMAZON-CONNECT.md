@@ -28,7 +28,7 @@ Inicio
 
 Requiere `ConnectQueueId` y el módulo administrado. Este flow sirve para una instalación reproducible y pruebas básicas. Un negocio puede sustituirlo por un flow propio con bots, horarios, atributos, enrutamiento o automatización; en ese caso configure `CreateDefaultContactFlow=false` y `DefaultContactFlowId` con un flow publicado.
 
-`ManagedContactFlowName` y `ConnectContextModuleName` no reciben el valor de `Environment` automáticamente. Incluya el ambiente en esos nombres si `dev` y `prod` comparten instancia. Ambos recursos administrados usan `DeletionPolicy` y `UpdateReplacePolicy: Retain`: pueden sobrevivir a la eliminación/reemplazo del stack y provocar colisión de nombre al recrearlo; decida de forma explícita si se reutilizan, importan, renombran o eliminan manualmente.
+`ManagedContactFlowName` y `ConnectContextModuleName` no reciben el valor de `Environment` automáticamente. Incluya el ambiente en esos nombres si `dev` y `prod` comparten instancia. Ambos recursos administrados usan `DeletionPolicy: RetainExceptOnCreate` y `UpdateReplacePolicy: Retain`: un rollback de la creación inicial los elimina, pero una eliminación o reemplazo posterior los conserva y puede provocar colisión de nombre al recrearlos; decida de forma explícita si se reutilizan, importan, renombran o eliminan manualmente.
 
 Los archivos [context-module.json](../connect/context-module.json) y [default-contact-flow.example.json](../connect/default-contact-flow.example.json) son referencias legibles. La versión desplegada se encuentra también en `template.yaml`; evite editar una copia y olvidar la otra.
 

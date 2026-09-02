@@ -196,7 +196,7 @@ Globals:
 Resources:
   DataKey:
     Type: AWS::KMS::Key
-    DeletionPolicy: Retain
+    DeletionPolicy: RetainExceptOnCreate
     UpdateReplacePolicy: Retain
     Properties:
       EnableKeyRotation: true
@@ -238,7 +238,7 @@ Resources:
 
   MediaBucket:
     Type: AWS::S3::Bucket
-    DeletionPolicy: Retain
+    DeletionPolicy: RetainExceptOnCreate
     UpdateReplacePolicy: Retain
     Properties:
       BucketName: !Sub '${ProjectName}-${Environment}-${AWS::AccountId}-${AWS::Region}'
@@ -270,7 +270,7 @@ Resources:
 
   StateTable:
     Type: AWS::DynamoDB::Table
-    DeletionPolicy: Retain
+    DeletionPolicy: RetainExceptOnCreate
     UpdateReplacePolicy: Retain
     Properties:
       TableName: !Sub 'tb_${ProjectName}-${Environment}'
@@ -436,7 +436,7 @@ Resources:
         Format: '{"requestId":"$context.requestId","routeKey":"$context.routeKey","status":"$context.status","responseLength":"$context.responseLength"}'
   ApiLogGroup:
     Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
+    DeletionPolicy: RetainExceptOnCreate
     UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: !Sub '/aws/apigateway/${ProjectName}-${Environment}'
@@ -536,7 +536,7 @@ Resources:
 
   IngressLogGroup:
     Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
+    DeletionPolicy: RetainExceptOnCreate
     UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: !Sub '/aws/lambda/${ProjectName}-${Environment}-lambda-redes-sociales-ingreso'
@@ -638,7 +638,7 @@ Resources:
 
   ProcessorLogGroup:
     Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
+    DeletionPolicy: RetainExceptOnCreate
     UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: !Sub '/aws/lambda/${ProjectName}-${Environment}-lambda-redes-sociales-procesador'
@@ -681,7 +681,7 @@ Resources:
 
   CampaignLogGroup:
     Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
+    DeletionPolicy: RetainExceptOnCreate
     UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: !Sub '/aws/lambda/${ProjectName}-${Environment}-lambda-redes-sociales-campanas'
@@ -749,7 +749,7 @@ Resources:
 
   MediaLogGroup:
     Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
+    DeletionPolicy: RetainExceptOnCreate
     UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: !Sub '/aws/lambda/${ProjectName}-${Environment}-lambda-redes-sociales-multimedia'
@@ -797,7 +797,7 @@ Resources:
   ConnectContextModule:
     Type: AWS::Connect::ContactFlowModule
     Condition: CreateContextModule
-    DeletionPolicy: Retain
+    DeletionPolicy: RetainExceptOnCreate
     UpdateReplacePolicy: Retain
     Properties:
       InstanceArn: !Sub 'arn:${AWS::Partition}:connect:${AWS::Region}:${AWS::AccountId}:instance/${ConnectInstanceId}'
@@ -809,11 +809,12 @@ Resources:
           "Version": "2019-10-30",
           "StartAction": "SetSocialContext",
           "Metadata": {
-            "EntryPointPosition": {"x": 40, "y": 40},
+            "entryPointPosition": {"x": 40, "y": 40},
             "ActionMetadata": {
-              "SetSocialContext": {"Position": {"x": 220, "y": 40}},
-              "ReturnToFlow": {"Position": {"x": 500, "y": 40}}
-            }
+              "SetSocialContext": {"position": {"x": 220, "y": 40}},
+              "ReturnToFlow": {"position": {"x": 500, "y": 40}}
+            },
+            "Annotations": []
           },
           "Actions": [
             {
@@ -837,7 +838,15 @@ Resources:
               "Parameters": {},
               "Transitions": {}
             }
-          ]
+          ],
+          "Settings": {
+            "InputParameters": [],
+            "OutputParameters": [],
+            "Transitions": [
+              {"DisplayName": "Success", "ReferenceName": "Success", "Description": ""},
+              {"DisplayName": "Error", "ReferenceName": "Error", "Description": ""}
+            ]
+          }
         }
       Tags:
         - {Key: Application, Value: !Ref ProjectName}
@@ -847,7 +856,7 @@ Resources:
   DefaultConnectContactFlow:
     Type: AWS::Connect::ContactFlow
     Condition: CreateManagedDefaultFlow
-    DeletionPolicy: Retain
+    DeletionPolicy: RetainExceptOnCreate
     UpdateReplacePolicy: Retain
     Properties:
       InstanceArn: !Sub 'arn:${AWS::Partition}:connect:${AWS::Region}:${AWS::AccountId}:instance/${ConnectInstanceId}'
@@ -860,13 +869,14 @@ Resources:
           "Version": "2019-10-30",
           "StartAction": "InitializeSocialContext",
           "Metadata": {
-            "EntryPointPosition": {"x": 40, "y": 40},
+            "entryPointPosition": {"x": 40, "y": 40},
             "ActionMetadata": {
-              "InitializeSocialContext": {"Position": {"x": 220, "y": 40}},
-              "SetWorkingQueue": {"Position": {"x": 500, "y": 40}},
-              "TransferToAgentQueue": {"Position": {"x": 780, "y": 40}},
-              "EndContact": {"Position": {"x": 1060, "y": 40}}
-            }
+              "InitializeSocialContext": {"position": {"x": 220, "y": 40}},
+              "SetWorkingQueue": {"position": {"x": 500, "y": 40}},
+              "TransferToAgentQueue": {"position": {"x": 780, "y": 40}},
+              "EndContact": {"position": {"x": 1060, "y": 40}}
+            },
+            "Annotations": []
           },
           "Actions": [
             {
@@ -919,7 +929,7 @@ Resources:
 
   AdminAppBucket:
     Type: AWS::S3::Bucket
-    DeletionPolicy: Retain
+    DeletionPolicy: RetainExceptOnCreate
     UpdateReplacePolicy: Retain
     Properties:
       BucketName: !Sub '${ProjectName}-${Environment}-app-${AWS::AccountId}-${AWS::Region}'

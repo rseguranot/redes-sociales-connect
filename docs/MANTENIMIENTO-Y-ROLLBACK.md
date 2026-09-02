@@ -112,7 +112,7 @@ Revise periódicamente los avisos oficiales de [myApplications](https://docs.aws
 - `ProjectName` es el nombre base y `Environment` participa en la mayoría de nombres físicos; mantenga única cada combinación. `StackName`, `AdminAppNamespace` y los nombres de flow/módulo de Connect deben aislarse explícitamente.
 - Revise reemplazos de KMS, bucket, tabla, Flow y AppIntegrations.
 - Active protección de borrado en producción.
-- Mantenga `DeletionPolicy`/`UpdateReplacePolicy: Retain` para datos y recursos difíciles de recrear.
+- Mantenga `DeletionPolicy: RetainExceptOnCreate` y `UpdateReplacePolicy: Retain` para datos y recursos difíciles de recrear: los intentos iniciales fallidos se limpian y los recursos de una instalación existente se conservan.
 - Evite cambiar `ProjectName` en un stack existente: cambia nombres físicos.
 - El flow y módulo Connect administrados usan `Retain`; pueden permanecer tras borrar/reemplazar el stack. Antes de recrear, decida si importarlos, reutilizarlos, renombrarlos o eliminarlos manualmente para evitar colisiones.
 - No mezcle despliegue y corte de webhook en una sola acción irreversible.
