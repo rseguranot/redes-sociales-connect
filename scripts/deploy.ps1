@@ -177,8 +177,9 @@ try {
   # El archivo JSON evita que PowerShell/cmd dividan valores con espacios antes
   # de que SAM CLI los interprete (nombres de flow, aplicación y negocio).
   $parameterOverridesPath = Join-Path $samBuildDir 'parameter-overrides.json'
-  $parameterOverrides | ConvertTo-Json -Depth 3 -Compress |
-    Set-Content -LiteralPath $parameterOverridesPath -Encoding utf8NoBOM
+  $parameterOverridesJson = $parameterOverrides | ConvertTo-Json -Depth 3 -Compress
+  $utf8WithoutBom = New-Object System.Text.UTF8Encoding($false)
+  [System.IO.File]::WriteAllText($parameterOverridesPath, $parameterOverridesJson, $utf8WithoutBom)
   $deployArguments += @('--parameter-overrides', "file://$parameterOverridesPath")
   $deployArguments += @(
     '--tags',
