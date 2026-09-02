@@ -36,6 +36,7 @@ def _args() -> argparse.Namespace:
     parser.add_argument("--destination-secret-id", required=True)
     parser.add_argument("--notice", required=True)
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument("--retry-skipped-active", action="store_true")
     return parser.parse_args()
 
 
@@ -133,16 +134,39 @@ def main() -> int:
             )
         except ClientError as exc:
             if exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
-                counts["already_processed"] += 1
-                continue
-            raise
+                previous = ddb.get_item(Key=audit_key, ConsistentRead=True).get("Item", {})
+                if not args.retry_skipped_active or previous.get("status") != "SKIPPED_ACTIVE":
+                    counts["already_processed"] += 1
+                    continue
+            else:
+                raise
 
         session_key = {"pk": f"IDENTITY#{identity['id']}", "sk": "SESSION"}
         current = ddb.get_item(Key=session_key, ConsistentRead=True).get("Item")
         if current and int(current.get("expires_at", 0)) > now:
-            counts["already_active"] += 1
-            ddb.update_item(Key=audit_key, UpdateExpression="SET #s=:s", ExpressionAttributeNames={"#s": "status"}, ExpressionAttributeValues={":s": "SKIPPED_ACTIVE"})
-            continue
+            actually_active = False
+            try:
+                described = destination.describe_contact(
+                    InstanceId=args.destination_instance_id,
+                    ContactId=current["contact_id"],
+                )["Contact"]
+                actually_active = not described.get("DisconnectTimestamp")
+            except ClientError:
+                pass
+            if actually_active:
+                if args.retry_skipped_active:
+                    meta_id = _send_meta(secret, identity["phone"], args.notice)
+                    ddb.update_item(
+                        Key=audit_key,
+                        UpdateExpression="SET #s=:s, meta_message_id=:m, completed_at=:u",
+                        ExpressionAttributeNames={"#s": "status"},
+                        ExpressionAttributeValues={":s": "COMPLETED_EXISTING", ":m": meta_id, ":u": int(time.time())},
+                    )
+                    counts["created"] += 1
+                else:
+                    counts["already_active"] += 1
+                    ddb.update_item(Key=audit_key, UpdateExpression="SET #s=:s", ExpressionAttributeNames={"#s": "status"}, ExpressionAttributeValues={":s": "SKIPPED_ACTIVE"})
+                continue
 
         started = None
         try:
