@@ -166,12 +166,20 @@ try {
     '--profile', $AwsProfile,
     '--region', [string]$cfg.Region,
     '--no-confirm-changeset',
-    '--no-fail-on-empty-changeset',
-    '--parameter-overrides'
+    '--no-fail-on-empty-changeset'
   )
+  $parameterOverrides = [ordered]@{}
   foreach ($entry in $overrides.GetEnumerator()) {
-    $deployArguments += "$($entry.Key)=$([string]$entry.Value)"
+    # SAM CLI rechaza `Parameter=`. Los opcionales vacíos ya declaran Default: ''.
+    if ([string]::IsNullOrEmpty([string]$entry.Value)) { continue }
+    $parameterOverrides[[string]$entry.Key] = [string]$entry.Value
   }
+  # El archivo JSON evita que PowerShell/cmd dividan valores con espacios antes
+  # de que SAM CLI los interprete (nombres de flow, aplicación y negocio).
+  $parameterOverridesPath = Join-Path $samBuildDir 'parameter-overrides.json'
+  $parameterOverrides | ConvertTo-Json -Depth 3 -Compress |
+    Set-Content -LiteralPath $parameterOverridesPath -Encoding utf8NoBOM
+  $deployArguments += @('--parameter-overrides', "file://$parameterOverridesPath")
   $deployArguments += @(
     '--tags',
     "Application=$($cfg.ProjectName)",
