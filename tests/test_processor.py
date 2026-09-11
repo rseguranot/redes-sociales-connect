@@ -355,7 +355,7 @@ class ParserTests(unittest.TestCase):
             "type": "interactive",
             "interactive": {"list_reply": {"id": "agente", "title": "Hablar con un agente"}},
         })
-        self.assertEqual((text, route), ("Quiero hablar con un representante", "agente"))
+        self.assertEqual((text, route), ("otra opcion", "agente"))
 
     def test_canonical_envelope_exposes_channel_and_sender_asset(self):
         change = {

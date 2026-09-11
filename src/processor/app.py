@@ -542,7 +542,10 @@ def _content(message: dict[str, Any]) -> tuple[str, str | None]:
         reply = value.get("button_reply") or value.get("list_reply") or {}
         reply_id = str(reply.get("id") or "")
         if reply_id.strip().lower() in {"agente", "agent", "representante"}:
-            return "Quiero hablar con un representante", reply_id
+            # The first Connect menu bot routes its ``agente`` intent from the
+            # "otra opcion" family of utterances.  That intent name is then
+            # passed to the downstream Q bot, which performs the handoff.
+            return "otra opcion", reply_id
         return reply.get("title") or reply_id or "[Respuesta interactiva]", reply_id or None
     if kind == "button":
         return message.get("button", {}).get("text") or "[Botón]", message.get("button", {}).get("payload")
