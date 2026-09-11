@@ -1038,32 +1038,7 @@ Resources:
               "Identifier": "SetWorkingQueue",
               "Type": "UpdateContactTargetQueue",
               "Parameters": {"QueueId": "arn:${AWS::Partition}:connect:${AWS::Region}:${AWS::AccountId}:instance/${ConnectInstanceId}/queue/${ConnectQueueId}"},
-              "Transitions": {"NextAction": "Greeting", "Errors": [{"NextAction": "Greeting", "ErrorType": "NoMatchingError"}]}
-            },
-            {
-              "Identifier": "Greeting",
-              "Type": "MessageParticipant",
-              "Parameters": {"Text": "Buenos días, gracias por comunicarse con Plaza Lama, la Súper Tienda. Seleccione una opción del menú para continuar."},
-              "Transitions": {"NextAction": "MenuBot", "Errors": [{"NextAction": "MenuBot", "ErrorType": "NoMatchingError"}]}
-            },
-            {
-              "Identifier": "MenuBot",
-              "Type": "ConnectParticipantWithLexBot",
-              "Parameters": {"LexInitializationData": {"InitialMessage": "menu"}, "LexV2Bot": {"AliasArn": "${DevelopmentMenuBotAliasArn}"}},
-              "Transitions": {
-                "NextAction": "CreateAiSession",
-                "Conditions": [
-                  {"NextAction": "CreateAiSession", "Condition": {"Operator": "Equals", "Operands": ["Queja"]}},
-                  {"NextAction": "CreateAiSession", "Condition": {"Operator": "Equals", "Operands": ["General"]}},
-                  {"NextAction": "CreateAiSession", "Condition": {"Operator": "Equals", "Operands": ["Estatus"]}},
-                  {"NextAction": "CheckNoTransferIdentity", "Condition": {"Operator": "Equals", "Operands": ["agente"]}},
-                  {"NextAction": "CreateAiSession", "Condition": {"Operator": "Equals", "Operands": ["reclamaciones"]}}
-                ],
-                "Errors": [
-                  {"NextAction": "CreateAiSession", "ErrorType": "NoMatchingCondition"},
-                  {"NextAction": "CompleteMessage", "ErrorType": "NoMatchingError"}
-                ]
-              }
+              "Transitions": {"NextAction": "CreateAiSession", "Errors": [{"NextAction": "CreateAiSession", "ErrorType": "NoMatchingError"}]}
             },
             {
               "Identifier": "CheckNoTransferIdentity",
@@ -1100,25 +1075,26 @@ Resources:
               "Identifier": "CreateAiSession",
               "Type": "CreateWisdomSession",
               "Parameters": {"WisdomAssistantArn": "${DevelopmentAiAssistantArn}"},
-              "Transitions": {"NextAction": "BindAiSession", "Errors": [{"NextAction": "CompleteMessage", "ErrorType": "NoMatchingError"}]}
+              "Transitions": {"NextAction": "BindAiSession", "Errors": [{"NextAction": "AiErrorMessage", "ErrorType": "NoMatchingError"}]}
             },
             {
               "Identifier": "BindAiSession",
               "Type": "UpdateContactData",
               "Parameters": {"WisdomSessionArn": "$.Wisdom.SessionArn"},
-              "Transitions": {"NextAction": "AiBot", "Errors": [{"NextAction": "CompleteMessage", "ErrorType": "NoMatchingError"}]}
+              "Transitions": {"NextAction": "AiBot", "Errors": [{"NextAction": "AiErrorMessage", "ErrorType": "NoMatchingError"}]}
             },
             {
               "Identifier": "AiBot",
               "Type": "ConnectParticipantWithLexBot",
               "Parameters": {
-                "LexInitializationData": {"InitialMessage": "$.Lex.IntentName"},
+                "Text": "{\"whatsapp_outbound\":{\"type\":\"interactive\",\"interactive\":{\"type\":\"list\",\"header\":{\"type\":\"text\",\"text\":\"Plaza Lama\"},\"body\":{\"text\":\"Buenos días, gracias por comunicarse con Plaza Lama, la Súper Tienda. Elija una opción o escriba su consulta libremente.\"},\"action\":{\"button\":\"Ver opciones\",\"sections\":[{\"title\":\"Menú principal\",\"rows\":[{\"id\":\"dev_ai_general\",\"title\":\"Información general\",\"description\":\"Productos, precios, tiendas y horarios\"},{\"id\":\"dev_ai_estatus\",\"title\":\"Estatus de mi pedido\",\"description\":\"Consultar pedido o entrega\"},{\"id\":\"dev_ai_reclamacion\",\"title\":\"Tengo una reclamación\",\"description\":\"Producto, compra o caso existente\"},{\"id\":\"dev_ai_queja\",\"title\":\"Tengo una queja\",\"description\":\"Reportar una situación de servicio\"}]},{\"title\":\"Otras opciones\",\"rows\":[{\"id\":\"dev_ai_agent\",\"title\":\"Hablar con un agente\",\"description\":\"Atención con representante\"}]}]}}}}",
                 "LexV2Bot": {"AliasArn": "${DevelopmentAiBotAliasArn}"},
                 "LexSessionAttributes": {"x-amz-lex:q-in-connect:ai-agent-arn": "${DevelopmentAiAgentArn}"}
               },
               "Transitions": {
                 "NextAction": "CaptureAiOutcome",
                 "Conditions": [
+                  {"NextAction": "CheckNoTransferIdentity", "Condition": {"Operator": "Equals", "Operands": ["AgenteHumano"]}},
                   {"NextAction": "CaptureAiOutcome", "Condition": {"Operator": "Equals", "Operands": ["AmazonQinConnect"]}},
                   {"NextAction": "CaptureAiOutcome", "Condition": {"Operator": "Equals", "Operands": ["FallbackIntent"]}},
                   {"NextAction": "CaptureAiOutcome", "Condition": {"Operator": "Equals", "Operands": ["consulta"]}},
@@ -1129,7 +1105,7 @@ Resources:
                 ],
                 "Errors": [
                   {"NextAction": "CaptureAiOutcome", "ErrorType": "NoMatchingCondition"},
-                  {"NextAction": "CompleteMessage", "ErrorType": "NoMatchingError"}
+                  {"NextAction": "AiErrorMessage", "ErrorType": "NoMatchingError"}
                 ]
               }
             },
@@ -1152,12 +1128,12 @@ Resources:
               "Type": "Compare",
               "Parameters": {"ComparisonValue": "$.Attributes.representante"},
               "Transitions": {
-                "NextAction": "CompleteMessage",
+                "NextAction": "MarkComplete",
                 "Conditions": [
-                  {"NextAction": "CheckHours", "Condition": {"Operator": "Equals", "Operands": ["true"]}},
-                  {"NextAction": "CompleteMessage", "Condition": {"Operator": "Equals", "Operands": ["false"]}}
+                  {"NextAction": "CheckNoTransferIdentity", "Condition": {"Operator": "Equals", "Operands": ["true"]}},
+                  {"NextAction": "MarkComplete", "Condition": {"Operator": "Equals", "Operands": ["false"]}}
                 ],
-                "Errors": [{"NextAction": "CompleteMessage", "ErrorType": "NoMatchingCondition"}]
+                "Errors": [{"NextAction": "MarkComplete", "ErrorType": "NoMatchingCondition"}]
               }
             },
             {
@@ -1204,10 +1180,16 @@ Resources:
               "Transitions": {"NextAction": "Disconnect", "Errors": [{"NextAction": "Disconnect", "ErrorType": "NoMatchingError"}]}
             },
             {
-              "Identifier": "CompleteMessage",
+              "Identifier": "AiErrorMessage",
               "Type": "MessageParticipant",
-              "Parameters": {"Text": "Ha sido un placer ayudarle."},
-              "Transitions": {"NextAction": "MarkComplete", "Errors": [{"NextAction": "MarkComplete", "ErrorType": "NoMatchingError"}]}
+              "Parameters": {"Text": "No pudimos continuar la conversación automática en este momento. Por favor, intente nuevamente."},
+              "Transitions": {"NextAction": "MarkError", "Errors": [{"NextAction": "MarkError", "ErrorType": "NoMatchingError"}]}
+            },
+            {
+              "Identifier": "MarkError",
+              "Type": "UpdateContactAttributes",
+              "Parameters": {"Attributes": {"bot_branch_outcome": "ERROR", "bot_outcome": "ERROR"}, "TargetContact": "Current"},
+              "Transitions": {"NextAction": "Disconnect", "Errors": [{"NextAction": "Disconnect", "ErrorType": "NoMatchingError"}]}
             },
             {
               "Identifier": "MarkComplete",

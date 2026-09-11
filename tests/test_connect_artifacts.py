@@ -70,7 +70,7 @@ class ConnectArtifactsTests(unittest.TestCase):
         self.assertEqual(actions["TransferToAgentQueue"]["Type"], "TransferContactToQueue")
         self.assertEqual(actions["EndContact"]["Type"], "DisconnectParticipant")
 
-    def test_development_ai_flow_routes_agent_intent_before_q_bot(self):
+    def test_development_ai_flow_uses_one_native_menu_and_routes_agent_safely(self):
         template = (ROOT / "template.yaml").read_text(encoding="utf-8")
         section = template.split("  DevelopmentAiContactFlow:", 1)[1].split(
             "  AdminAppBucket:", 1
@@ -87,13 +87,29 @@ class ConnectArtifactsTests(unittest.TestCase):
         actions = self._assert_valid_graph(flow)
         self.assertEqual(flow["StartAction"], "EnableLogging")
         self.assertEqual(actions["SetLanguage"]["Parameters"]["LanguageCode"], "es-US")
-        menu = actions["MenuBot"]
+        self.assertNotIn("Greeting", actions)
+        self.assertNotIn("MenuBot", actions)
+        self.assertEqual(actions["SetWorkingQueue"]["Transitions"]["NextAction"], "CreateAiSession")
+        ai_bot = actions["AiBot"]
+        menu_payload = json.loads(ai_bot["Parameters"]["Text"])["whatsapp_outbound"]
+        self.assertEqual(menu_payload["type"], "interactive")
+        self.assertEqual(menu_payload["interactive"]["type"], "list")
+        self.assertIn("consulta libremente", menu_payload["interactive"]["body"]["text"])
+        rows = [
+            row
+            for section in menu_payload["interactive"]["action"]["sections"]
+            for row in section["rows"]
+        ]
+        self.assertEqual(len(rows), 5)
+        self.assertEqual({row["id"] for row in rows}, {
+            "dev_ai_general", "dev_ai_estatus", "dev_ai_reclamacion",
+            "dev_ai_queja", "dev_ai_agent",
+        })
         routes = {
             item["Condition"]["Operands"][0]: item["NextAction"]
-            for item in menu["Transitions"]["Conditions"]
+            for item in ai_bot["Transitions"]["Conditions"]
         }
-        self.assertEqual(routes["agente"], "CheckNoTransferIdentity")
-        self.assertEqual(routes["General"], "CreateAiSession")
+        self.assertEqual(routes["AgenteHumano"], "CheckNoTransferIdentity")
         identity_check = actions["CheckNoTransferIdentity"]
         self.assertEqual(
             identity_check["Parameters"]["ComparisonValue"],
@@ -109,6 +125,12 @@ class ConnectArtifactsTests(unittest.TestCase):
             "true",
         )
         self.assertEqual(actions["MarkTestComplete"]["Transitions"]["NextAction"], "Disconnect")
+        self.assertEqual(
+            actions["CheckHandoff"]["Transitions"]["Conditions"][0]["NextAction"],
+            "CheckNoTransferIdentity",
+        )
+        self.assertEqual(actions["MarkComplete"]["Transitions"]["NextAction"], "Disconnect")
+        self.assertNotIn("CompleteMessage", actions)
         self.assertEqual(actions["TransferMessage"]["Parameters"].get("SSML"), None)
         self.assertIn("Text", actions["TransferMessage"]["Parameters"])
 

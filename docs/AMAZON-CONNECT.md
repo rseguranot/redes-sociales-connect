@@ -101,6 +101,8 @@ Una conversación ya abierta continúa en su contacto actual; no debe reiniciars
 
 La allowlist es temporal. Prefiera `DevelopmentSenderAssetIds` o `DevelopmentSocialUserIds`; un username puede cambiar y sólo debe usarse para pruebas controladas. Nunca derive el teléfono desde username o BSUID. Use recursos aislados y elimine la excepción al terminar.
 
+El flow WhatsApp AI administrado entrega un único menú nativo desde el mismo bloque que mantiene abierta la conversación con el bot inteligente. Las opciones usan frases de negocio, no nombres técnicos de intents, y el cliente también puede ignorar la lista y escribir su consulta libremente. Al finalizar el bot no se agrega una despedida genérica desde el flow, para evitar respuestas duplicadas o un cierre aparente después de elegir una opción.
+
 `ChatConnectInstanceId` es opcional y afecta únicamente a la Lambda procesadora. Permite conservar el webhook y los recursos de ingreso en un stack mientras los chats se abren en una instancia Connect distinta para una prueba controlada.
 
 ## Colas y routing profiles de Connect
