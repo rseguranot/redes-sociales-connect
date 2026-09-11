@@ -153,6 +153,7 @@ try {
     DevelopmentAiAssistantArn = if ($cfg.ContainsKey('DevelopmentAiAssistantArn')) { [string]$cfg.DevelopmentAiAssistantArn } else { '' }
     DevelopmentAiAgentArn = if ($cfg.ContainsKey('DevelopmentAiAgentArn')) { [string]$cfg.DevelopmentAiAgentArn } else { '' }
     DevelopmentHoursOfOperationArn = if ($cfg.ContainsKey('DevelopmentHoursOfOperationArn')) { [string]$cfg.DevelopmentHoursOfOperationArn } else { '' }
+    DevelopmentNoTransferSocialUserId = if ($cfg.ContainsKey('DevelopmentNoTransferSocialUserId')) { [string]$cfg.DevelopmentNoTransferSocialUserId } else { '' }
     DevelopmentPhoneNumbers = if ($cfg.ContainsKey('DevelopmentPhoneNumbers')) { [string]$cfg.DevelopmentPhoneNumbers } else { '' }
     DevelopmentSenderAssetIds = if ($cfg.ContainsKey('DevelopmentSenderAssetIds')) { [string]$cfg.DevelopmentSenderAssetIds } else { '' }
     DevelopmentSocialUserIds = if ($cfg.ContainsKey('DevelopmentSocialUserIds')) { [string]$cfg.DevelopmentSocialUserIds } else { '' }

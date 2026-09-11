@@ -37,6 +37,7 @@
   DevelopmentAiAssistantArn = ''
   DevelopmentAiAgentArn = ''
   DevelopmentHoursOfOperationArn = ''
+  DevelopmentNoTransferSocialUserId = '' # BSUID estable; nunca derive este valor del username.
   DevelopmentPhoneNumbers = ''
   DevelopmentSenderAssetIds = ''
   DevelopmentSocialUserIds = ''

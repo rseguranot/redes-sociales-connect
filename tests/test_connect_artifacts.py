@@ -92,8 +92,23 @@ class ConnectArtifactsTests(unittest.TestCase):
             item["Condition"]["Operands"][0]: item["NextAction"]
             for item in menu["Transitions"]["Conditions"]
         }
-        self.assertEqual(routes["agente"], "CheckHours")
+        self.assertEqual(routes["agente"], "CheckNoTransferIdentity")
         self.assertEqual(routes["General"], "CreateAiSession")
+        identity_check = actions["CheckNoTransferIdentity"]
+        self.assertEqual(
+            identity_check["Parameters"]["ComparisonValue"],
+            "$.Attributes.social_user_id",
+        )
+        self.assertEqual(identity_check["Transitions"]["NextAction"], "CheckHours")
+        self.assertEqual(
+            identity_check["Transitions"]["Conditions"][0]["NextAction"],
+            "PersonalTestGreeting",
+        )
+        self.assertEqual(
+            actions["MarkTestComplete"]["Parameters"]["Attributes"]["transfer_suppressed"],
+            "true",
+        )
+        self.assertEqual(actions["MarkTestComplete"]["Transitions"]["NextAction"], "Disconnect")
         self.assertEqual(actions["TransferMessage"]["Parameters"].get("SSML"), None)
         self.assertIn("Text", actions["TransferMessage"]["Parameters"])
 
