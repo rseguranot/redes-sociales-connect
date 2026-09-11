@@ -26,7 +26,7 @@ Despliegue: validar y construir la plantilla SAM, preparar un change set con `Bo
 
 Validación del 2026-09-11: prueba real en WhatsApp Web de consulta libre de sucursal → botones nativos → respuesta escrita “sí” → horario con negrita/viñetas → botón de dirección conservando la sucursal. La validación demuestra transporte y continuidad de esas rutas, no certifica la actualidad de todos los datos del catálogo.
 
-## Corrección de contexto de televisores (pendiente de despliegue)
+## Corrección de contexto de televisores
 
 El adaptador reconoce consultas de precio de televisor en singular y plural. El
 hook versionado existente tiene una expresión `televisores?` que no reconoce el
@@ -45,9 +45,10 @@ sucursal quedan a cargo del hook existente y abandonan el contexto de producto.
 llamar a la ruta de transferencia del hook. La sucursal indicada no certifica
 inventario ni precio local: las respuestas del catálogo lo aclaran expresamente.
 
-Validación local: 115 pruebas y 9 subpruebas aprobadas. Incluye la secuencia
+Validación local inicial: 115 pruebas y 9 subpruebas aprobadas. Incluye la secuencia
 precio de televisor LG → sucursal → reiteración de precio → medida, cambios de
-marca/medida, modelo/tecnología, menú y salidas de contexto. Esta corrección no
-está desplegada ni certificada E2E; requiere validación CloudFormation, revisión
-de change set sin reemplazos ajenos y repetición real en el usuario protegido.
+marca/medida, modelo/tecnología, menú y salidas de contexto. Esta corrección
+se desplegó después en el bot independiente de chat y se verificó en WhatsApp
+real. Véase [aislamiento de Lex](WHATSAPP-LEX-ISOLATION.md) para la validación
+actual, límites y procedimiento de reversión.
 No amplía el alcance a resolución de pedidos ni registro de casos CRM.

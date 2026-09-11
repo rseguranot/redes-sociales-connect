@@ -45,3 +45,32 @@ No debe ejecutarse como parte de cada despliegue: la fuente de chat ya es propia
 Para revertir el enrutamiento, restaurar el valor anterior de ese único
 parámetro mediante CloudFormation. No eliminar bots o Lambdas anteriores
 durante la validación. Consultar IDs/ARNs en outputs; no publicarlos en Git.
+
+## Validación del 11 de septiembre de 2026
+
+Desplegado y conectado al flow restringido de pruebas. Ambos stacks terminaron
+en UPDATE_COMPLETE. El cambio del stack principal conservó 42 parámetros y
+modificó únicamente el alias de IA; el change set mostró el contenido del flow
+de pruebas y la referencia dependiente en el entorno del procesador, sin
+reemplazos ni cambio de código de este último.
+
+Pruebas locales: 121 aprobadas y 9 subpruebas; esquema CloudFormation sin
+hallazgos y cuatro reglas Guard aprobadas. Lex publicado validó producto,
+contexto, menú, estatus, reclamación, queja, agente y consulta de horario.
+
+Prueba real de WhatsApp Web, 12:43–12:49 hora local:
+
+- Menú inicial → Información general → tres botones nativos en español.
+- Precio de televisor LG → sucursal → repetición de precio → medida de 55
+  pulgadas: conservó contexto y devolvió dos opciones de catálogo con precios.
+- La sucursal no se presentó como inventario/precio confirmado localmente.
+- Botón Otra consulta → menú, sin transferencia ni despedida.
+- Estatus → petición de factura; cambio a reclamación → Sí → petición de
+  documento; cambio a queja → No → petición de nombre. No se aportaron datos
+  personales ni se completó el registro de casos.
+- Solicitud de agente → cierre protegido del usuario de prueba. Persiste el
+  anuncio previo de transferencia además de la aclaración de prueba.
+
+Se verificaron sin cambios el contenido del flow de voz, el código del hook
+anterior y las versiones de sus aliases Lex. No se certificaron precios de
+tienda, resolución de pedidos, CRM, multimedia ni una transferencia real.
