@@ -357,6 +357,22 @@ class ParserTests(unittest.TestCase):
         })
         self.assertEqual((text, route), ("otra opcion", "agente"))
 
+    def test_dev_ai_list_replies_preserve_business_phrases(self):
+        options = {
+            "dev_ai_general": "Información general",
+            "dev_ai_estatus": "Estatus de mi pedido",
+            "dev_ai_reclamacion": "Tengo una reclamación",
+            "dev_ai_queja": "Tengo una queja",
+            "dev_ai_agent": "Hablar con un agente",
+        }
+        for reply_id, title in options.items():
+            with self.subTest(reply_id=reply_id):
+                text, route = processor._content({
+                    "type": "interactive",
+                    "interactive": {"list_reply": {"id": reply_id, "title": title}},
+                })
+                self.assertEqual((text, route), (title, reply_id))
+
     def test_canonical_envelope_exposes_channel_and_sender_asset(self):
         change = {
             "_social_business_id": "business-account-1",
