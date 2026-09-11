@@ -55,9 +55,39 @@ del test y no se modificó esa función por afectar otros consumidores.
 Reclamaciones tiene herramientas Salesforce de búsqueda, consulta y creación.
 La consulta de solo lectura `SELECT IsSandbox FROM Organization LIMIT 1` devolvió
 `IsSandbox = false`: el destino Salesforce es producción, pese al nombre dev de
-la Lambda. No se ejecutó `/createClaim`. No se certifica creación de un caso ni
-consulta positiva de un pedido sin un sandbox y un cliente/pedido de prueba
-conocido. Hace falta ese entorno para completar la prueba de escritura.
+la Lambda. En la primera ronda no se ejecutó `/createClaim`; la excepción
+posterior autorizada para un cliente/caso ficticios se documenta abajo.
+La consulta positiva de pedidos/facturas continúa pendiente: un caso CRM
+de prueba no equivale a un pedido comercial de prueba.
 La transferencia protegida conserva dos mensajes: anuncio y aclaración de prueba.
 No están cubiertos aquí multimedia, CCP real, mensajes fuera de ventana, carga,
 duplicados de webhook ni todas las posibles formulaciones de lenguaje natural.
+
+## Creación y consulta CRM con autorización posterior explícita
+
+Después de informar que Salesforce era producción y que se enviaría un correo
+automático, el usuario autorizó expresamente crear un cliente ficticio y un caso
+marcado PRUEBA QA NO PROCESAR. Esta excepción no convierte el destino en dev ni
+autoriza reutilizar clientes reales como datos de pruebas.
+
+- Se creó por API un Person Account exclusivo de QA, con identificador
+  alfanumérico ficticio de tipo pasaporte y sin teléfono ni correo de personas.
+  Se comprobó ausencia de colisión antes de crear y cero casos iniciales.
+- Desde WhatsApp: reclamación → producto Sí → identificador QA → confirmación →
+  cliente encontrado sin casos → nueva reclamación → descripción ficticia → fecha.
+- El bot creó un solo caso por la herramienta normal. La consulta directa de
+  Salesforce verificó persistencia, vínculo al cliente QA, origen Amazon connect
+  y estado Abierto. No se usó una creación directa por API para simular éxito E2E.
+- Los registros de ejecución mostraron una creación completada y un correo
+  automático enviado, sin fallo de notificación. Esto prueba aceptación por SES,
+  no entrega/lectura en el buzón final.
+- El bot conservó que el televisor y el incidente eran ficticios, pero omitió la
+  etiqueta literal PRUEBA QA de la descripción. Se reforzó por API únicamente
+  el asunto y descripción del caso QA creado; no se modificaron registros reales.
+- Desde WhatsApp se consultó el caso recién creado: respondió su estado abierto,
+  motivo, descripción ficticia y ausencia de taller/resolución.
+
+El cliente y el caso QA se conservan, marcados NO PROCESAR, para pruebas futuras.
+No se borraron registros. Los identificadores operativos y los scripts de manejo
+del fixture permanecen en el directorio local ignorado `.aws-sam`, fuera de Git.
+En esta ronda no se cambió infraestructura, código del bot, voz ni agentes compartidos.
