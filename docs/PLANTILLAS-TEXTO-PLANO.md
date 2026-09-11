@@ -159,6 +159,12 @@ Título y pie interactivos se limitan a 60 caracteres. Las etiquetas largas se a
 
 No se usa IA para “arreglar” un mensaje inválido en tiempo real. Los límites son deterministas y un rechazo explícito es más seguro que cambiar el sentido de una opción. La métrica/log `TemplateDslRejected` permite encontrar y corregir el bloque de Connect.
 
+## Mensajes interactivos emitidos por el flow
+
+El DSL `[plantilla]` es la interfaz recomendada para agentes y para bloques de texto fáciles de mantener. Un flow automatizado también puede emitir un sobre JSON interno con la clave `whatsapp_outbound` cuando necesita definir directamente un botón o una lista. La Lambda sólo interpreta ese sobre cuando el mensaje procede del rol `SYSTEM`, valida los límites de Meta y envía al cliente el componente interactivo; el JSON nunca debe mostrarse como texto en WhatsApp.
+
+Los mensajes JSON escritos por un agente no se ejecutan como payloads de Meta. Para agentes se mantiene `[plantilla]`, evitando que texto libre pueda introducir estructuras arbitrarias.
+
 ## Formato WhatsApp ↔ Connect
 
 WhatsApp usa `*texto*` para negrita; Connect Markdown usa `**texto**`. La conversión de mensajes entrantes evita mostrar simultáneamente formato y asteriscos. Los marcadores incompletos se conservan como texto para no alterar el contenido.

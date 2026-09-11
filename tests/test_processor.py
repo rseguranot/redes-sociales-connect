@@ -709,6 +709,74 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(sent[0][1]["type"], "interactive")
         self.assertEqual(sent[0][1]["interactive"]["body"]["text"], "*Hola Juan, elige*")
 
+    def test_connect_system_event_sends_validated_whatsapp_payload(self):
+        sent = []
+        metrics = []
+        originals = processor.ddb, processor._send_whatsapp, processor._metric
+
+        class Table:
+            def query(self, **_kwargs):
+                return {"Items": [{"identity_id": "US.123", "phone": "15555550101"}]}
+
+        envelope = {
+            "whatsapp_outbound": {
+                "type": "interactive",
+                "interactive": {
+                    "type": "list",
+                    "header": {"type": "text", "text": "¿Cómo podemos ayudarle?"},
+                    "body": {"text": "Seleccione una opción del menú"},
+                    "action": {
+                        "button": "Opciones",
+                        "sections": [{
+                            "title": "Menú principal",
+                            "rows": [{"id": "agente", "title": "Hablar con un agente"}],
+                        }],
+                    },
+                },
+            },
+        }
+        processor.ddb = Table()
+        processor._send_whatsapp = lambda identity, payload: sent.append((identity, payload)) or {"messages": []}
+        processor._metric = lambda *args, **kwargs: metrics.append((args, kwargs))
+        try:
+            processor._connect_event({"Message": {
+                "Id": "flow-menu-1",
+                "ContactId": "contact-1",
+                "ParticipantRole": "SYSTEM",
+                "Content": json.dumps(envelope),
+            }})
+        finally:
+            processor.ddb, processor._send_whatsapp, processor._metric = originals
+
+        self.assertEqual(sent[0][1]["type"], "interactive")
+        self.assertEqual(sent[0][1]["interactive"]["type"], "list")
+        self.assertEqual(metrics[0][1]["MessageType"], "flow_list")
+
+    def test_agent_json_is_sent_as_plain_text(self):
+        sent = []
+        originals = processor.ddb, processor._send_whatsapp, processor._metric
+
+        class Table:
+            def query(self, **_kwargs):
+                return {"Items": [{"identity_id": "US.123", "phone": "15555550101"}]}
+
+        content = json.dumps({"whatsapp_outbound": {"type": "interactive", "interactive": {}}})
+        processor.ddb = Table()
+        processor._send_whatsapp = lambda identity, payload: sent.append((identity, payload)) or {"messages": []}
+        processor._metric = lambda *_args, **_kwargs: None
+        try:
+            processor._connect_event({"Message": {
+                "Id": "agent-json-1",
+                "ContactId": "contact-1",
+                "ParticipantRole": "AGENT",
+                "Content": content,
+            }})
+        finally:
+            processor.ddb, processor._send_whatsapp, processor._metric = originals
+
+        self.assertEqual(sent[0][1]["type"], "text")
+        self.assertEqual(sent[0][1]["text"]["body"], content)
+
     def test_quote_document_uses_uploaded_s3_key(self):
         sent = []
         original_claim, original_send, original_s3 = processor._claim, processor._send_whatsapp, processor.s3

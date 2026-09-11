@@ -131,6 +131,13 @@ El script comprueba identidad AWS, stack, revisión, recursos, runtime, mappings
 3. Confirme que el mensaje procede del agente/sistema esperado.
 4. Busque `TemplateDslRejected` y su razón.
 
+### Un menú del flow llegó como JSON visible
+
+1. Confirme que el mensaje fue emitido por Connect con rol `SYSTEM`.
+2. El sobre debe contener `whatsapp_outbound` y un payload interactivo `button` o `list` válido.
+3. Busque `FlowWhatsAppPayloadRejected` y su razón si la Lambda descartó la estructura.
+4. No sustituya este mecanismo por JSON libre escrito por agentes; para ellos use `[plantilla]`.
+
 ### Botón no usa el flow esperado
 
 1. Compare el ID técnico del botón, no solo su texto.

@@ -318,6 +318,86 @@ def _template_dsl_payload(text: str, row: dict[str, Any]) -> tuple[dict[str, Any
     return {"type": "interactive", "interactive": interactive}, "buttons"
 
 
+def _system_whatsapp_payload(content: str) -> dict[str, Any] | None:
+    """Extract a validated Meta payload emitted intentionally by a Connect flow."""
+    try:
+        envelope = json.loads(content)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(envelope, dict) or "whatsapp_outbound" not in envelope:
+        return None
+
+    payload = envelope.get("whatsapp_outbound")
+    if not isinstance(payload, dict):
+        raise ValueError("flow_whatsapp_payload_must_be_object")
+    if payload.get("type") != "interactive" or not isinstance(payload.get("interactive"), dict):
+        raise ValueError("flow_whatsapp_payload_type_not_supported")
+
+    interactive = payload["interactive"]
+    interactive_type = str(interactive.get("type") or "")
+    if interactive_type not in {"button", "list"}:
+        raise ValueError("flow_whatsapp_interactive_type_not_supported")
+    body = interactive.get("body")
+    body_text = str(body.get("text") or "") if isinstance(body, dict) else ""
+    body_limit = 1024 if interactive_type == "button" else 4096
+    if not 1 <= len(body_text) <= body_limit:
+        raise ValueError("flow_whatsapp_interactive_body_invalid")
+
+    header = interactive.get("header")
+    if header is not None:
+        if not isinstance(header, dict) or header.get("type") != "text":
+            raise ValueError("flow_whatsapp_interactive_header_invalid")
+        if not 1 <= len(str(header.get("text") or "")) <= 60:
+            raise ValueError("flow_whatsapp_interactive_header_invalid")
+    footer = interactive.get("footer")
+    if footer is not None and (
+        not isinstance(footer, dict) or not 1 <= len(str(footer.get("text") or "")) <= 60
+    ):
+        raise ValueError("flow_whatsapp_interactive_footer_invalid")
+
+    action = interactive.get("action")
+    if not isinstance(action, dict):
+        raise ValueError("flow_whatsapp_interactive_action_invalid")
+    if interactive_type == "button":
+        buttons = action.get("buttons")
+        if not isinstance(buttons, list) or not 1 <= len(buttons) <= 3:
+            raise ValueError("flow_whatsapp_interactive_buttons_invalid")
+        for button in buttons:
+            reply = button.get("reply") if isinstance(button, dict) else None
+            if not isinstance(button, dict) or button.get("type") != "reply" or not isinstance(reply, dict):
+                raise ValueError("flow_whatsapp_interactive_button_invalid")
+            if not 1 <= len(str(reply.get("id") or "")) <= 256:
+                raise ValueError("flow_whatsapp_interactive_button_invalid")
+            if not 1 <= len(str(reply.get("title") or "")) <= 20:
+                raise ValueError("flow_whatsapp_interactive_button_invalid")
+    else:
+        if not 1 <= len(str(action.get("button") or "")) <= 20:
+            raise ValueError("flow_whatsapp_interactive_list_button_invalid")
+        sections = action.get("sections")
+        if not isinstance(sections, list) or not sections:
+            raise ValueError("flow_whatsapp_interactive_sections_invalid")
+        rows = []
+        for section in sections:
+            if not isinstance(section, dict) or not isinstance(section.get("rows"), list):
+                raise ValueError("flow_whatsapp_interactive_section_invalid")
+            if "title" in section and not 1 <= len(str(section.get("title") or "")) <= 24:
+                raise ValueError("flow_whatsapp_interactive_section_invalid")
+            rows.extend(section["rows"])
+        if not 1 <= len(rows) <= 10:
+            raise ValueError("flow_whatsapp_interactive_rows_invalid")
+        for row in rows:
+            if not isinstance(row, dict):
+                raise ValueError("flow_whatsapp_interactive_row_invalid")
+            if not 1 <= len(str(row.get("id") or "")) <= 200:
+                raise ValueError("flow_whatsapp_interactive_row_invalid")
+            if not 1 <= len(str(row.get("title") or "")) <= 24:
+                raise ValueError("flow_whatsapp_interactive_row_invalid")
+            if "description" in row and len(str(row.get("description") or "")) > 72:
+                raise ValueError("flow_whatsapp_interactive_row_invalid")
+
+    return {"type": "interactive", "interactive": interactive}
+
+
 def _participant_display_name(identity: dict[str, str]) -> str:
     """Build an agent-visible name that preserves the WhatsApp phone number."""
     phone = str(identity.get("phone") or "").strip()
@@ -1330,7 +1410,8 @@ def _connect_event(notification: dict[str, Any]) -> None:
     if isinstance(event, str):
         event = json.loads(event)
     event = event or {}
-    if str(event.get("ParticipantRole", "")).upper() not in {"AGENT", "SYSTEM"}:
+    participant_role = str(event.get("ParticipantRole", "")).upper()
+    if participant_role not in {"AGENT", "SYSTEM"}:
         return
     contact_id = str(event.get("InitialContactId") or event.get("ContactId") or "")
     if not contact_id:
@@ -1339,13 +1420,34 @@ def _connect_event(notification: dict[str, Any]) -> None:
     if not rows:
         return
     row = rows[0]
-    if str(event.get("ParticipantRole", "")).upper() == "AGENT" and event.get("Attachments"):
+    if participant_role == "AGENT" and event.get("Attachments"):
         _send_agent_attachments(event, row)
         return
     content = str(event.get("Content") or "")
     if not content:
         return
     identity = {"id": str(row["identity_id"]), "phone": str(row.get("phone") or "")}
+    if participant_role == "SYSTEM":
+        try:
+            system_payload = _system_whatsapp_payload(content)
+        except ValueError as exc:
+            logger.warning(json.dumps({
+                "event": "flow_whatsapp_payload_rejected",
+                "contact_id": contact_id,
+                "reason": str(exc),
+            }, separators=(",", ":")))
+            _metric("FlowWhatsAppPayloadRejected", Channel="whatsapp", Reason=str(exc)[:100])
+            return
+        if system_payload is not None:
+            interactive_type = str((system_payload.get("interactive") or {}).get("type") or "interactive")
+            _send_whatsapp(identity, system_payload)
+            _metric(
+                "MessagesProcessed",
+                Channel="whatsapp",
+                Direction="outbound",
+                MessageType=f"flow_{interactive_type}",
+            )
+            return
     if _template_dsl_enabled(identity["phone"]) and _is_template_dsl(content):
         try:
             payload, template_type = _template_dsl_payload(content, row)
