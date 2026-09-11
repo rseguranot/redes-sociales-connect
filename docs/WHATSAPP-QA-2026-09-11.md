@@ -114,6 +114,7 @@ se comprobó ausencia de colisión antes de crear el fixture definitivo.
 | Estatus por lista → factura inexistente | Informó ausencia de información y pidió revisar el número. |
 | Corrección explícita desde factura a caso | Cambió a reclamaciones, confirmó el número y recuperó el caso QA de entrega. |
 | Estatus con factura real, lectura autorizada posteriormente | La API respondió HTTP 200 y WhatsApp mostró factura finalizada. No afirmó entrega física; no se modificó el pedido. |
+| Solicitud de representante después de consulta positiva | Anuncio seguido de aclaración de prueba y cierre protegido. Continúan siendo dos mensajes; no certifica transferencia a agente real. |
 
 Los dos casos nuevos fueron creados por el recorrido normal de WhatsApp, no por
 una inserción directa para simular éxito. Se verificaron contra el Account QA.
