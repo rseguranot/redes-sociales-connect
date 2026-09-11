@@ -75,11 +75,11 @@ export function ConnectSessionGate({ children }) {
       } catch (sessionError) {
         setConnectSessionToken("");
         sessionRef.current = null;
-        setContext(null);
-        setError(
-          sessionError.message ||
-            "Tu usuario de Connect no tiene permiso para abrir esta aplicación.",
-        );
+        // The administrative application requires verifiable SSO. The read-only
+        // history panel instead requires the short-lived capability on the active
+        // Connect contact, so it remains safe to expose without a second login.
+        setContext({ ...connectContext, session: null, historyOnly: true });
+        setError("");
       }
     })
       .then((destroy) => {

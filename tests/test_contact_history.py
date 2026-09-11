@@ -86,15 +86,14 @@ def test_archive_expiry_and_no_bearer_media_urls():
         processor.ddb.put_item.assert_not_called()
 
 
-def test_history_requires_both_session_and_contact_capability():
+def test_history_requires_contact_capability_without_an_administrative_session():
     ingress = module("ingress")
     with patch.dict(os.environ, {"CONTACT_HISTORY_DAYS": "7", "STATE_TABLE": "test"}):
-        assert ingress._contact_history_response({}, {})["statusCode"] == 401
-        assert ingress._contact_history_response({}, {"agent_id": "qa"})["statusCode"] == 403
+        assert ingress._contact_history_response({})["statusCode"] == 403
         table = ingress._ddb.Table.return_value
         table.get_item.return_value = {"Item": {"contact_id": "other", "expires_at": 9999999999}}
         event = {"headers": {"x-social-history-token": "a" * 43}, "queryStringParameters": {"contact_id": "qa"}}
-        assert ingress._contact_history_response(event, {"agent_id": "qa"})["statusCode"] == 403
+        assert ingress._contact_history_response(event)["statusCode"] == 403
         table.query.assert_not_called()
 
 
@@ -122,7 +121,7 @@ def test_history_filters_expired_rows_and_never_returns_tokens_or_partition_keys
     ]}
     event = {"headers": {"x-social-history-token": "a" * 43}, "queryStringParameters": {"contact_id": "qa"}}
     with patch.dict(os.environ, {"CONTACT_HISTORY_DAYS": "7", "STATE_TABLE": "test"}), patch.object(ingress.time, "time", return_value=1800000000):
-        response = ingress._contact_history_response(event, {"agent_id": "qa"})
+        response = ingress._contact_history_response(event)
     body = json.loads(response["body"])
     assert len(body["entries"]) == 1
     assert "hidden" not in response["body"] and "scope" not in response["body"]

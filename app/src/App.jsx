@@ -1340,6 +1340,12 @@ function Settings({ context }) {
   );
 }
 export function App({ context: ctx }) {
+  if (ctx.historyOnly) {
+    return <main className="history-workspace">
+      <header><b>{BRAND.name}</b><small>Contexto del contacto activo</small></header>
+      {ctx.contact ? <ContactHistory key={ctx.contact.contactId} contact={ctx.contact} /> : <p>Seleccione una conversación de WhatsApp para consultar su contexto reciente.</p>}
+    </main>;
+  }
   const [active, setActive] = useState("dashboard");
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [refreshing, setRefreshing] = useState(false);

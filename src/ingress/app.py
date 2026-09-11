@@ -562,12 +562,15 @@ def _create_connect_session(event: dict[str, Any], body: dict[str, Any]) -> dict
     })
 
 
-def _contact_history_response(event: dict, actor: dict) -> dict:
-    """Session plus contact-scoped capability obtained exclusively through Connect SDK."""
+def _contact_history_response(event: dict) -> dict:
+    """Return a history only when the active contact exposes its scoped capability.
+
+    Agent Workspace does not provide a backend-verifiable SSO assertion.  The
+    short-lived, contact-bound capability comes from the active Connect contact
+    and cannot be used to enumerate another contact's history.
+    """
     if os.environ.get("CONTACT_HISTORY_DAYS") != "7":
         return _response(404, {"error": "history_not_enabled"})
-    if not actor:
-        return _response(401, {"error": "connect_session_required"})
     query = event.get("queryStringParameters") or {}
     token = _header(event, "x-social-history-token")
     if not re.fullmatch(r"[A-Za-z0-9_-]{43}", token):
@@ -1269,6 +1272,11 @@ def lambda_handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
             return _response(400, {"error": "invalid_json"})
         return _create_connect_session(event, body)
 
+    if path.endswith("/admin/contact-history") and method == "GET":
+        if not _app_origin_allowed(event):
+            return _response(403, {"error": "invalid_app_origin"})
+        return _contact_history_response(event)
+
     actor = None
     if path.startswith("/admin/"):
         if not _app_origin_allowed(event):
@@ -1276,9 +1284,6 @@ def lambda_handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
         actor = _session_actor(event)
         if not actor:
             return _response(401, {"error": "connect_session_required"})
-
-    if path.endswith("/admin/contact-history") and method == "GET":
-        return _contact_history_response(event, actor or {})
 
     if path.endswith("/admin/access-profiles") and method in {"GET", "POST"}:
         body = None
