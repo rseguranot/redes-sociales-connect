@@ -39,6 +39,32 @@ def test_internal_and_typing_events_never_forward_or_archive():
     processor.ddb.query.assert_not_called()
 
 
+def test_history_recovers_linked_connect_contact_to_its_initial_chat():
+    processor = module("processor")
+    processor.ddb = MagicMock()
+    processor.ddb.query.return_value = {"Items": []}
+    processor.ddb.get_item.side_effect = [
+        {},
+        {"Item": {
+            "history_scope": "scope", "contact_id": "initial-contact", "identity_id": "BSUID-test",
+            "phone": "", "ttl": 9999999999,
+        }},
+    ]
+    processor.connect.describe_contact.return_value = {"Contact": {"InitialContactId": "initial-contact"}}
+    processor._history_message = MagicMock()
+    processor._send_whatsapp = MagicMock()
+    processor._metric = MagicMock()
+    with patch.dict(os.environ, {"CONTACT_HISTORY_DAYS": "7", "CONNECT_INSTANCE_ID": "instance"}):
+        processor._connect_event({"Message": {
+            "Id": "linked-message", "ContactId": "linked-contact", "ParticipantRole": "SYSTEM",
+            "Content": "Respuesta visible del bot",
+        }})
+    processor._history_message.assert_called_once()
+    assert processor._history_message.call_args.args[0]["contact_id"] == "initial-contact"
+    processor._send_whatsapp.assert_called_once()
+    processor._metric.assert_any_call("HistoryContactLinkRecovered", Channel="whatsapp", Link="initial_contact")
+
+
 def test_scope_never_joins_different_business_sender_assets():
     processor = module("processor")
     assert processor._history_scope("BSUID-test", "asset-a") != processor._history_scope("BSUID-test", "asset-b")
@@ -74,6 +100,17 @@ def test_history_requires_both_session_and_contact_capability():
 
 def test_history_filters_expired_rows_and_never_returns_tokens_or_partition_keys():
     ingress = module("ingress")
+    class KeyExpression:
+        def eq(self, _value):
+            return self
+
+        def between(self, _low, _high):
+            return self
+
+        def __and__(self, _other):
+            return self
+
+    ingress.Key = lambda _name: KeyExpression()
     table = ingress._ddb.Table.return_value
     table.get_item.side_effect = [
         {"Item": {"contact_id": "qa", "expires_at": 1800001000, "history_scope": "scope"}},

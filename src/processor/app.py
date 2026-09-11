@@ -1529,6 +1529,41 @@ def _admin(command: str, body: dict[str, Any], request_id: str) -> None:
     _admin_one(body, request_id)
 
 
+def _history_row_for_contact(contact_id: str) -> dict[str, Any] | None:
+    """Resolve an initial session row even when Connect emits a linked contact ID."""
+    rows = ddb.query(
+        IndexName="ContactIndex", KeyConditionExpression=Key("gsi1pk").eq(f"CONTACT#{contact_id}")
+    )["Items"]
+    if rows:
+        return rows[0]
+    if not _history_enabled():
+        return None
+    mapping = ddb.get_item(
+        Key={"pk": "HISTORY_CONTACT#" + contact_id, "sk": "MAP"}, ConsistentRead=True
+    ).get("Item")
+    if mapping and int(mapping.get("ttl", 0)) > time.time():
+        return mapping
+    try:
+        contact = connect.describe_contact(
+            InstanceId=os.environ["CONNECT_INSTANCE_ID"], ContactId=contact_id
+        ).get("Contact") or {}
+    except ClientError:
+        return None
+    for root_contact_id in (
+        str(contact.get("InitialContactId") or ""),
+        str(contact.get("ContactAssociationId") or ""),
+    ):
+        if not root_contact_id or root_contact_id == contact_id:
+            continue
+        mapping = ddb.get_item(
+            Key={"pk": "HISTORY_CONTACT#" + root_contact_id, "sk": "MAP"}, ConsistentRead=True
+        ).get("Item")
+        if mapping and int(mapping.get("ttl", 0)) > time.time():
+            _metric("HistoryContactLinkRecovered", Channel="whatsapp", Link="initial_contact")
+            return mapping
+    return None
+
+
 def _connect_event(notification: dict[str, Any]) -> None:
     event = notification.get("Message")
     if isinstance(event, str):
@@ -1545,13 +1580,9 @@ def _connect_event(notification: dict[str, Any]) -> None:
     contact_id = str(event.get("InitialContactId") or event.get("ContactId") or "")
     if not contact_id:
         return
-    rows = ddb.query(IndexName="ContactIndex", KeyConditionExpression=Key("gsi1pk").eq(f"CONTACT#{contact_id}"))["Items"]
-    if not rows and _history_enabled():
-        mapping = ddb.get_item(Key={"pk": "HISTORY_CONTACT#" + contact_id, "sk": "MAP"}, ConsistentRead=True).get("Item")
-        rows = [mapping] if mapping and int(mapping.get("ttl", 0)) > time.time() else []
-    if not rows:
+    row = _history_row_for_contact(contact_id)
+    if not row:
         return
-    row = rows[0]
     _history_message(row, event)
     if participant_role == "AGENT" and event.get("Attachments"):
         _send_agent_attachments(event, row)
