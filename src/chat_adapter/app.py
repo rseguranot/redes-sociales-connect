@@ -60,6 +60,15 @@ def product_context(event):
     text = event.get("inputTranscript") or event.get("rawInputTranscript") or ""
     norm = normalized(text)
     active = attrs.get("chat_product_active") == "true"
+    if norm in {"informacion general", "pregunta general"}:
+        for key in PRODUCT_KEYS:
+            attrs.pop(key, None)
+        return chat_reply(event, template(
+            "Puedo ayudarte con productos, precios, promociones, sucursales y horarios.",
+            "¿Qué deseas consultar? También puedes escribir tu pregunta.",
+            ["Consultar producto", "Sucursales", "Promociones"]))
+    if norm == "consultar producto":
+        return chat_reply(event, "¿Qué producto buscas? Puedes indicar marca, modelo o características.")
     if norm in {"menu", "menu principal", "otra consulta", "otro producto"}:
         for key in PRODUCT_KEYS:
             attrs.pop(key, None)
@@ -185,6 +194,8 @@ def present(text, attrs):
     clean = re.sub(r";\s*(domingo\b)", r"\n- \1", clean, flags=re.I)
     clean = re.sub(r"\s+(¿?(?:Deseas|Desea|Te interesa|Buscas|Qué|Cual|Cuál)\b)", r"\n\n\1", clean)
     norm = normalized(text)
+    if "el cliente quiere consultar" in norm and "factura" in norm:
+        return "Para consultar el estatus de tu pedido, necesito el *número de factura*.\n\n¿Lo tienes a mano?"
     if "tiene que ver con un producto comprado" in norm:
         return template("Para orientarte correctamente:", text, ["Sí", "No"])
     if "deseas consultar el horario" in norm and attrs.get("branch_last_code"):

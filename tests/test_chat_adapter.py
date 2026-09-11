@@ -150,3 +150,15 @@ def test_short_size_with_preposition():
     event = turn("de 55", {"chat_product_active": "true", "chat_product_brand": "LG"})
     assert adapter.product_context(event) is None
     assert event["inputTranscript"] == "precio televisores LG 55 pulgadas"
+
+
+def test_general_information_is_chat_owned():
+    answer = adapter.product_context(turn("Información general"))
+    assert answer["sessionState"]["dialogAction"]["type"] == "ElicitIntent"
+    assert "[opcion] Consultar producto" in answer["messages"][0]["content"]
+
+
+def test_status_internal_note_is_not_customer_copy():
+    content = adapter.present("El cliente quiere consultar el estado de su pedido, pero necesito la factura.", {})
+    assert "El cliente" not in content
+    assert "número de factura" in content
