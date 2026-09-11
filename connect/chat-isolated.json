@@ -340,7 +340,7 @@
                 },
                 "ArnLike": {
                   "aws:SourceArn": {
-                    "Fn::Sub": "arn:${AWS::Partition}:lex:${AWS::Region}:${AWS::AccountId}:bot/*"
+                    "Fn::Sub": "arn:${AWS::Partition}:lex:${AWS::Region}:${AWS::AccountId}:bot-alias/*"
                   }
                 }
               }

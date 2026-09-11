@@ -196,7 +196,7 @@ def main():
         "AssumeRolePolicyDocument": {"Version": "2012-10-17", "Statement": [{"Effect": "Allow",
             "Principal": {"Service": "lexv2.amazonaws.com"}, "Action": "sts:AssumeRole",
             "Condition": {"StringEquals": {"aws:SourceAccount": {"Ref": "AWS::AccountId"}},
-                          "ArnLike": {"aws:SourceArn": {"Fn::Sub": "arn:${AWS::Partition}:lex:${AWS::Region}:${AWS::AccountId}:bot/*"}}}}]},
+                          "ArnLike": {"aws:SourceArn": {"Fn::Sub": "arn:${AWS::Partition}:lex:${AWS::Region}:${AWS::AccountId}:bot-alias/*"}}}}]},
         "Policies": [{"PolicyName": "ScopedChatAssistant", "PolicyDocument": {"Version": "2012-10-17", "Statement": [
             {"Effect": "Allow", "Action": ["wisdom:CreateSession", "wisdom:GetAssistant"],
              "Resource": [{"Ref": "AssistantArn"}, {"Fn::Sub": "${AssistantArn}/*"}]},
