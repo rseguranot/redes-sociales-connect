@@ -21,6 +21,21 @@ def test_yes_without_pending_question_is_not_reinterpreted():
     assert adapter.prepare(event)["inputTranscript"] == "sí"
 
 
+def test_menu_clears_service_context_but_preserves_connect_identity():
+    attrs = {"bedrock_active_intent": "quejas", "nombre_cliente": "Test",
+             "pending_product_clarification": "quejas", "routing_mode": "bedrock_supervisor",
+             "bedrock_supervisor_session_id": "old-topic", "social_user_id": "test-user",
+             "x-amz-lex:q-in-connect:ai-agent-arn": "test-agent", "menu_pending": "true"}
+    response = adapter.product_context(turn("menú", attrs))
+    result = response["sessionState"]["sessionAttributes"]
+    assert "bedrock_active_intent" not in result and "nombre_cliente" not in result
+    assert "pending_product_clarification" not in result and "routing_mode" not in result
+    assert result["bedrock_supervisor_session_id"] != "old-topic"
+    assert result["social_user_id"] == "test-user"
+    assert result["x-amz-lex:q-in-connect:ai-agent-arn"] == "test-agent"
+    assert result["menu_pending"] == "false"
+
+
 def test_interactive_followup_keeps_branch():
     event = {"inputTranscript": "Ver dirección", "sessionState": {"sessionAttributes": {"branch_last_code": "PL_TEST"}}}
     assert adapter.prepare(event)["inputTranscript"] == "dirección de PL_TEST"

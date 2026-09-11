@@ -55,9 +55,8 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     _apply_complaint_fields_from_action_input(session_attrs, request_attrs)
     _apply_contextual_user_answer_fields(session_attrs, transcript, last_agent_response)
     _apply_claim_fields(session_attrs, transcript, request_attrs)
-    response = _handle_fast_claim_document_flow(session_state, session_attrs, transcript, last_agent_response)
-    if response is not None:
-        return response
+    # Chat must let the claims agent validate/search the supplied document.
+    # The former voice shortcut transferred immediately without doing a lookup.
     if session_attrs.get('pending_product_clarification'):
         response = _handle_product_clarification_pending(event, session_state, session_attrs, transcript, last_agent_response)
         if response is not None:

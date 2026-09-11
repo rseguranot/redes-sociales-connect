@@ -4,6 +4,7 @@ import json
 import os
 import re
 import unicodedata
+import uuid
 from datetime import date
 
 import boto3
@@ -39,6 +40,27 @@ TV_BRANDS = {"lg", "samsung", "sony", "tcl", "hisense", "panasonic",
              "sankey", "sharp", "tecnomaster", "toshiba"}
 
 
+def reset_dialogue(attrs):
+    """Clear business state, preserving transport/identity and Connect AI config."""
+    prefixes = ("bedrock_", "reclamacion_", "consulta_", "qconnect_", "branch_",
+                "chat_product_", "product_clarification_", "pending_product_")
+    fields = {"routing_mode", "servicio", "nombre_cliente", "telefono_cliente",
+              "detalle_queja", "lugar_queja", "fecha_incidente", "area_involucrada",
+              "persona_involucrada", "nivel_queja", "nivel_criticidad", "documento_cliente",
+              "tipo_documento", "initial_customer_message", "last_agent_response",
+              "chat_pending_action", "origen_actual", "agente", "representante",
+              "_closed", "wants_close", "tipoestadofinal", "resumen_turno",
+              "correo_enviado", "case_id", "message_id", "accion_ejecutada", "estado_flujo",
+              "x-amz-lex:bedrock-agent-search-response",
+              "x-amz-lex:bedrock-agent-action-group-invocation-input"}
+    for key in list(attrs):
+        if key in fields or key.startswith(prefixes):
+            attrs.pop(key, None)
+    # Reusing the Lex session ID would resurrect the previous Bedrock dialogue.
+    attrs["bedrock_supervisor_session_id"] = "chat-topic-" + uuid.uuid4().hex
+    attrs["menu_pending"] = "false"
+
+
 def chat_reply(event, text):
     state = copy.deepcopy(event.get("sessionState", {}))
     state["dialogAction"] = {"type": "ElicitIntent"}
@@ -61,8 +83,7 @@ def product_context(event):
     norm = normalized(text)
     active = attrs.get("chat_product_active") == "true"
     if norm in {"informacion general", "pregunta general"}:
-        for key in PRODUCT_KEYS:
-            attrs.pop(key, None)
+        reset_dialogue(attrs)
         return chat_reply(event, template(
             "Puedo ayudarte con productos, precios, promociones, sucursales y horarios.",
             "¿Qué deseas consultar? También puedes escribir tu pregunta.",
@@ -70,6 +91,7 @@ def product_context(event):
     if norm == "consultar producto":
         return chat_reply(event, "¿Qué producto buscas? Puedes indicar marca, modelo o características.")
     if norm in {"menu", "menu principal", "otra consulta", "otro producto"}:
+        reset_dialogue(attrs)
         for key in PRODUCT_KEYS:
             attrs.pop(key, None)
         for key in ("qconnect_last_query", "qconnect_context_kind", "branch_pending_query",
