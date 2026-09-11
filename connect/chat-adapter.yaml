@@ -1,0 +1,88 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: WhatsApp test chat presentation and contextual replies around an existing business hook.
+Parameters:
+  BotId:
+    Type: String
+    AllowedPattern: '^[A-Za-z0-9]{10}$'
+  BotVersion:
+    Type: String
+    AllowedPattern: '^[0-9]+$'
+  BusinessHookArn:
+    Type: String
+    AllowedPattern: '^arn:aws:lambda:[a-z0-9-]+:[0-9]{12}:function:[A-Za-z0-9_-]+:[0-9]+$'
+  ConnectInstanceArn:
+    Type: String
+    AllowedPattern: '^arn:aws:connect:[a-z0-9-]+:[0-9]{12}:instance/[a-f0-9-]+$'
+Resources:
+  ChatAdapter:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../src/chat_adapter/
+      Handler: app.lambda_handler
+      Runtime: python3.14
+      Architectures: [arm64]
+      Timeout: 55
+      MemorySize: 256
+      Environment:
+        Variables:
+          BUSINESS_HOOK_ARN: !Ref BusinessHookArn
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: lambda:InvokeFunction
+              Resource: !Ref BusinessHookArn
+  Logs:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ChatAdapter}'
+      RetentionInDays: 30
+  ChatAlias:
+    Type: AWS::Lex::BotAlias
+    Properties:
+      BotAliasName: whatsapp_chat_test
+      BotId: !Ref BotId
+      BotVersion: !Ref BotVersion
+      Description: WhatsApp chat formatting and contextual interactive responses
+      BotAliasLocaleSettings:
+        - LocaleId: es_US
+          BotAliasLocaleSetting:
+            Enabled: true
+            CodeHookSpecification:
+              LambdaCodeHook:
+                CodeHookInterfaceVersion: '1.0'
+                LambdaArn: !GetAtt ChatAdapter.Arn
+  LexPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ChatAdapter
+      Action: lambda:InvokeFunction
+      Principal: lexv2.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !GetAtt ChatAlias.Arn
+  AliasPolicy:
+    Type: AWS::Lex::ResourcePolicy
+    Properties:
+      ResourceArn: !GetAtt ChatAlias.Arn
+      Policy:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: connect.amazonaws.com
+            Action: [lex:RecognizeText, lex:StartConversation, lex:RecognizeMessageAsync]
+            Resource: !GetAtt ChatAlias.Arn
+            Condition:
+              StringEquals:
+                AWS:SourceAccount: !Ref AWS::AccountId
+              ArnEquals:
+                AWS:SourceArn: !Ref ConnectInstanceArn
+Outputs:
+  ChatAliasArn:
+    Description: Alias for the allowlisted WhatsApp test flow
+    Value: !GetAtt ChatAlias.Arn
+  ChatAdapterName:
+    Description: Managed chat presentation hook
+    Value: !Ref ChatAdapter
