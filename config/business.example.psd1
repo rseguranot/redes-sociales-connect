@@ -30,6 +30,8 @@
   DevelopmentContactFlowId = ''
   DevelopmentPhoneNumbers = ''
   DevelopmentSenderAssetIds = ''
+  DevelopmentSocialUserIds = ''
+  DevelopmentSocialUsernames = ''
   TemplateDslMode = 'disabled'
   TemplateDslPhoneNumbers = ''
   DeveloperRoutingProfileIds = ''

@@ -16,18 +16,18 @@ class _Dummy:
 fake_boto3 = types.ModuleType("boto3")
 fake_boto3.client = lambda *_a, **_k: _Dummy()
 fake_boto3.resource = lambda *_a, **_k: _Dummy()
-sys.modules.setdefault("boto3", fake_boto3)
+sys.modules["boto3"] = fake_boto3
 conditions = types.ModuleType("boto3.dynamodb.conditions")
 conditions.Key = lambda *_a, **_k: _Dummy()
-sys.modules.setdefault("boto3.dynamodb", types.ModuleType("boto3.dynamodb"))
-sys.modules.setdefault("boto3.dynamodb.conditions", conditions)
+sys.modules["boto3.dynamodb"] = types.ModuleType("boto3.dynamodb")
+sys.modules["boto3.dynamodb.conditions"] = conditions
 botocore = types.ModuleType("botocore.exceptions")
 botocore.ClientError = Exception
-sys.modules.setdefault("botocore", types.ModuleType("botocore"))
-sys.modules.setdefault("botocore.exceptions", botocore)
+sys.modules["botocore"] = types.ModuleType("botocore")
+sys.modules["botocore.exceptions"] = botocore
 botocore_config = types.ModuleType("botocore.config")
 botocore_config.Config = lambda **kwargs: kwargs
-sys.modules.setdefault("botocore.config", botocore_config)
+sys.modules["botocore.config"] = botocore_config
 
 os.environ.update({"STATE_TABLE": "x"})
 path = Path(__file__).parents[1] / "src" / "processor" / "app.py"
@@ -67,8 +67,8 @@ class ParserTests(unittest.TestCase):
         os.environ["DEVELOPMENT_CONTACT_FLOW_ID"] = "dev-flow"
         os.environ["DEVELOPMENT_PHONE_NUMBERS"] = "+1 555-555-0100,15555550101"
         try:
-            self.assertEqual(processor._development_contact_flow("15555550100"), "dev-flow")
-            self.assertEqual(processor._development_contact_flow("15555550999"), "")
+            self.assertEqual(processor._development_contact_flow({"phone": "15555550100"}), "dev-flow")
+            self.assertEqual(processor._development_contact_flow({"phone": "15555550999"}), "")
         finally:
             if old_flow is None:
                 os.environ.pop("DEVELOPMENT_CONTACT_FLOW_ID", None)
@@ -473,8 +473,19 @@ class ParserTests(unittest.TestCase):
             "DEVELOPMENT_PHONE_NUMBERS": "",
             "DEVELOPMENT_SENDER_ASSET_IDS": "sender-asset-1",
         })
-        self.assertEqual(processor._development_contact_flow("", "sender-asset-1"), "dev-flow")
-        self.assertEqual(processor._development_contact_flow("", "other-asset"), "")
+        self.assertEqual(processor._development_contact_flow({}, "sender-asset-1"), "dev-flow")
+        self.assertEqual(processor._development_contact_flow({}, "other-asset"), "")
+
+    def test_development_flow_routes_by_bsuid_or_username(self):
+        os.environ.update({
+            "DEVELOPMENT_CONTACT_FLOW_ID": "dev-flow",
+            "DEVELOPMENT_PHONE_NUMBERS": "",
+            "DEVELOPMENT_SOCIAL_USER_IDS": "US.123",
+            "DEVELOPMENT_SOCIAL_USERNAMES": "@TestAgent",
+        })
+        self.assertEqual(processor._development_contact_flow({"id": "US.123"}), "dev-flow")
+        self.assertEqual(processor._development_contact_flow({"id": "US.999", "username": "testagent"}), "dev-flow")
+        self.assertEqual(processor._development_contact_flow({"id": "US.999", "username": "other"}), "")
 
     def test_media_worker_processes_media_task(self):
         calls = []

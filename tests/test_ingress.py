@@ -13,21 +13,18 @@ class _Dummy:
         return lambda *args, **kwargs: _Dummy()
 
 
-if "boto3" not in sys.modules:
-    fake_boto3 = types.ModuleType("boto3")
-    fake_boto3.client = lambda *_a, **_k: _Dummy()
-    fake_boto3.resource = lambda *_a, **_k: _Dummy()
-    sys.modules["boto3"] = fake_boto3
-if "boto3.dynamodb.conditions" not in sys.modules:
-    conditions = types.ModuleType("boto3.dynamodb.conditions")
-    conditions.Key = lambda *_a, **_k: _Dummy()
-    sys.modules.setdefault("boto3.dynamodb", types.ModuleType("boto3.dynamodb"))
-    sys.modules["boto3.dynamodb.conditions"] = conditions
-if "botocore.config" not in sys.modules:
-    botocore_config = types.ModuleType("botocore.config")
-    botocore_config.Config = lambda **kwargs: kwargs
-    sys.modules.setdefault("botocore", types.ModuleType("botocore"))
-    sys.modules["botocore.config"] = botocore_config
+fake_boto3 = types.ModuleType("boto3")
+fake_boto3.client = lambda *_a, **_k: _Dummy()
+fake_boto3.resource = lambda *_a, **_k: _Dummy()
+sys.modules["boto3"] = fake_boto3
+conditions = types.ModuleType("boto3.dynamodb.conditions")
+conditions.Key = lambda *_a, **_k: _Dummy()
+sys.modules["boto3.dynamodb"] = types.ModuleType("boto3.dynamodb")
+sys.modules["boto3.dynamodb.conditions"] = conditions
+botocore_config = types.ModuleType("botocore.config")
+botocore_config.Config = lambda **kwargs: kwargs
+sys.modules["botocore"] = types.ModuleType("botocore")
+sys.modules["botocore.config"] = botocore_config
 
 os.environ.update({"STATE_TABLE": "x", "CAMPAIGN_QUEUE_URL": "campaign.fifo"})
 path = Path(__file__).parents[1] / "src" / "ingress" / "app.py"

@@ -141,6 +141,8 @@ try {
     DevelopmentContactFlowId = if ($cfg.ContainsKey('DevelopmentContactFlowId')) { [string]$cfg.DevelopmentContactFlowId } else { '' }
     DevelopmentPhoneNumbers = if ($cfg.ContainsKey('DevelopmentPhoneNumbers')) { [string]$cfg.DevelopmentPhoneNumbers } else { '' }
     DevelopmentSenderAssetIds = if ($cfg.ContainsKey('DevelopmentSenderAssetIds')) { [string]$cfg.DevelopmentSenderAssetIds } else { '' }
+    DevelopmentSocialUserIds = if ($cfg.ContainsKey('DevelopmentSocialUserIds')) { [string]$cfg.DevelopmentSocialUserIds } else { '' }
+    DevelopmentSocialUsernames = if ($cfg.ContainsKey('DevelopmentSocialUsernames')) { [string]$cfg.DevelopmentSocialUsernames } else { '' }
     TemplateDslMode = if ($cfg.ContainsKey('TemplateDslMode')) { [string]$cfg.TemplateDslMode } else { 'disabled' }
     TemplateDslPhoneNumbers = if ($cfg.ContainsKey('TemplateDslPhoneNumbers')) { [string]$cfg.TemplateDslPhoneNumbers } else { '' }
     DeveloperRoutingProfileIds = if ($cfg.ContainsKey('DeveloperRoutingProfileIds')) { [string]$cfg.DeveloperRoutingProfileIds } else { '' }

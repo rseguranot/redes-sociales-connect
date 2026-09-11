@@ -93,13 +93,13 @@ Defina una rama de fallback cuando un dato opcional esté vacío. No muestre la 
 
 La selección ocurre al abrir una sesión nueva, en este orden:
 
-1. Un número empresarial de Meta incluido en `DevelopmentSenderAssetIds`, o un teléfono de cliente incluido explícitamente en la allowlist heredada `DevelopmentPhoneNumbers`, usa `DevelopmentContactFlowId`.
+1. Un número empresarial de Meta incluido en `DevelopmentSenderAssetIds`, un ID social estable incluido en `DevelopmentSocialUserIds`, un username de prueba incluido en `DevelopmentSocialUsernames`, o un teléfono incluido explícitamente en `DevelopmentPhoneNumbers`, usa `DevelopmentContactFlowId`.
 2. Una respuesta a botón con ruta guardada usa el `contact_flow_id` de esa campaña.
 3. Los demás contactos usan el flow predeterminado efectivo.
 
 Una conversación ya abierta continúa en su contacto actual; no debe reiniciarse solo para cambiar de flow. Para pruebas repetibles cierre la sesión/contacto anterior y espere que expire o use una identidad de prueba nueva.
 
-La allowlist de desarrollo es temporal. Prefiera `DevelopmentSenderAssetIds` para separar el número empresarial de prueba sin depender de que Meta entregue el teléfono del cliente. Nunca derive el teléfono desde username o BSUID. Use recursos aislados y elimine la excepción al terminar.
+La allowlist es temporal. Prefiera `DevelopmentSenderAssetIds` o `DevelopmentSocialUserIds`; un username puede cambiar y sólo debe usarse para pruebas controladas. Nunca derive el teléfono desde username o BSUID. Use recursos aislados y elimine la excepción al terminar.
 
 `ChatConnectInstanceId` es opcional y afecta únicamente a la Lambda procesadora. Permite conservar el webhook y los recursos de ingreso en un stack mientras los chats se abren en una instancia Connect distinta para una prueba controlada.
 

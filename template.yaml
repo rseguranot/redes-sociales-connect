@@ -78,6 +78,16 @@ Parameters:
     Default: ''
     AllowedPattern: '^$|^[0-9, -]+$'
     Description: IDs de números empresariales autorizados para el flow aislado de desarrollo.
+  DevelopmentSocialUserIds:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[A-Za-z0-9._:@, -]+$'
+    Description: IDs sociales estables autorizados para el flow aislado de pruebas.
+  DevelopmentSocialUsernames:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[@A-Za-z0-9._, -]+$'
+    Description: Usernames sociales autorizados temporalmente para pruebas controladas.
   TemplateDslMode:
     Type: String
     Default: disabled
@@ -600,6 +610,8 @@ Resources:
           DEVELOPMENT_CONTACT_FLOW_ID: !Ref DevelopmentContactFlowId
           DEVELOPMENT_PHONE_NUMBERS: !Ref DevelopmentPhoneNumbers
           DEVELOPMENT_SENDER_ASSET_IDS: !Ref DevelopmentSenderAssetIds
+          DEVELOPMENT_SOCIAL_USER_IDS: !Ref DevelopmentSocialUserIds
+          DEVELOPMENT_SOCIAL_USERNAMES: !Ref DevelopmentSocialUsernames
           TEMPLATE_DSL_MODE: !Ref TemplateDslMode
           TEMPLATE_DSL_PHONE_NUMBERS: !Ref TemplateDslPhoneNumbers
           WHATSAPP_SECRET_ARN: !Ref WhatsAppSecretArn

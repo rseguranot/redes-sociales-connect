@@ -49,12 +49,16 @@ def _stable_id(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-def _development_contact_flow(phone: str, sender_asset_id: str = "") -> str:
+def _normalized_social_username(value: str) -> str:
+    return str(value or "").strip().lower().lstrip("@")
+
+
+def _development_contact_flow(identity: dict[str, str], sender_asset_id: str = "") -> str:
     """Return the isolated Connect flow for an allow-listed customer or business sender."""
     flow_id = os.environ.get("DEVELOPMENT_CONTACT_FLOW_ID", "").strip()
     if not flow_id:
         return ""
-    normalized_phone = re.sub(r"\D", "", phone)
+    normalized_phone = _normalized_phone(identity.get("phone", ""))
     allowed = {
         re.sub(r"\D", "", value)
         for value in os.environ.get("DEVELOPMENT_PHONE_NUMBERS", "").split(",")
@@ -65,9 +69,22 @@ def _development_contact_flow(phone: str, sender_asset_id: str = "") -> str:
         for value in os.environ.get("DEVELOPMENT_SENDER_ASSET_IDS", "").split(",")
         if value.strip()
     }
+    allowed_user_ids = {
+        value.strip()
+        for value in os.environ.get("DEVELOPMENT_SOCIAL_USER_IDS", "").split(",")
+        if value.strip()
+    }
+    allowed_usernames = {
+        _normalized_social_username(value)
+        for value in os.environ.get("DEVELOPMENT_SOCIAL_USERNAMES", "").split(",")
+        if _normalized_social_username(value)
+    }
     customer_allowed = bool(normalized_phone and normalized_phone in allowed)
+    user_id_allowed = bool(identity.get("id") and identity["id"] in allowed_user_ids)
+    username = _normalized_social_username(identity.get("username", ""))
+    username_allowed = bool(username and username in allowed_usernames)
     sender_allowed = bool(sender_asset_id and sender_asset_id in allowed_assets)
-    return flow_id if customer_allowed or sender_allowed else ""
+    return flow_id if customer_allowed or user_id_allowed or username_allowed or sender_allowed else ""
 
 
 def _normalized_phone(value: str) -> str:
@@ -568,7 +585,7 @@ def _session(
 
     idempotency_token = hashlib.sha256(event_id.encode()).hexdigest()
     requested_flow_id = attributes.pop("target_flow_id", None)
-    development_flow_id = _development_contact_flow(identity["phone"], attributes.get("social_asset_id", ""))
+    development_flow_id = _development_contact_flow(identity, attributes.get("social_asset_id", ""))
     if development_flow_id:
         attributes["routing_rule"] = "development_sender"
     elif requested_flow_id:

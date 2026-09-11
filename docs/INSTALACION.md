@@ -89,6 +89,8 @@ El archivo local debe permanecer ignorado por Git. Use nombres únicos por cuent
   DevelopmentContactFlowId = ''
   DevelopmentPhoneNumbers = ''
   DevelopmentSenderAssetIds = ''
+  DevelopmentSocialUserIds = ''
+  DevelopmentSocialUsernames = ''
 
   TemplateDslMode = 'allowlist'
   TemplateDslPhoneNumbers = '15555550123'
