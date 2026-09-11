@@ -23,3 +23,5 @@ Las fechas de promoción explícitas ya vencidas generan una aclaración; no se 
 El adaptador no registra eventos ni mensajes. El hook de negocio preexistente conserva su configuración de logs: revisar su política de privacidad por separado. La prueba se limita al alias del flow de WhatsApp; no modifica mensajes normales de agentes.
 
 Despliegue: validar y construir la plantilla SAM, preparar un change set con `BotId`, `BotVersion`, `BusinessHookArn` versionado y `ConnectInstanceArn` desde configuración privada. Revisar antes de ejecutar. Después actualizar el parámetro del flow mediante un segundo change set. Para revertir, restaurar el alias anterior en ese parámetro. Este stack auxiliar no representa un ambiente dev completo.
+
+Validación del 2026-09-11: prueba real en WhatsApp Web de consulta libre de sucursal → botones nativos → respuesta escrita “sí” → horario con negrita/viñetas → botón de dirección conservando la sucursal. La validación demuestra transporte y continuidad de esas rutas, no certifica la actualidad de todos los datos del catálogo.
