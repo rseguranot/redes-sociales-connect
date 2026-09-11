@@ -1,0 +1,978 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Transform": "AWS::Serverless-2016-10-31",
+  "Description": "Independent Lex and Lambda business hook for allowlisted WhatsApp chat tests",
+  "Parameters": {
+    "ConnectInstanceArn": {
+      "Type": "String",
+      "AllowedPattern": "^arn:aws:connect:[a-z0-9-]+:[0-9]{12}:instance/[a-f0-9-]+$"
+    },
+    "AssistantArn": {
+      "Type": "String",
+      "AllowedPattern": "^arn:aws:wisdom:.*:assistant/.*$"
+    },
+    "AssistantKmsKeyArn": {
+      "Type": "String",
+      "AllowedPattern": "^arn:aws:kms:.*:key/.*$"
+    },
+    "ConfigBedrockReclamacionesAgentId": {
+      "Type": "String",
+      "MinLength": 1
+    },
+    "ConfigBedrockConsultaAgentId": {
+      "Type": "String",
+      "MinLength": 1
+    },
+    "ConfigSupervisorAgentId": {
+      "Type": "String",
+      "MinLength": 1
+    },
+    "ConfigBedrockReclamacionesAgentAliasId": {
+      "Type": "String",
+      "MinLength": 1
+    },
+    "ConfigBedrockQuejasAgentAliasId": {
+      "Type": "String",
+      "MinLength": 1
+    },
+    "ConfigSupervisorAgentAliasId": {
+      "Type": "String",
+      "MinLength": 1
+    },
+    "ConfigBedrockConsultaAgentAliasId": {
+      "Type": "String",
+      "MinLength": 1
+    },
+    "ConfigBedrockQuejasAgentId": {
+      "Type": "String",
+      "MinLength": 1
+    },
+    "ConfigQconnectAssistantId": {
+      "Type": "String",
+      "MinLength": 1
+    },
+    "ConfigQconnectAssociationId": {
+      "Type": "String",
+      "MinLength": 1
+    },
+    "ConfigAmazonQIntentName": {
+      "Type": "String",
+      "MinLength": 1
+    }
+  },
+  "Resources": {
+    "ConnectChatAssociation": {
+      "Type": "AWS::Connect::IntegrationAssociation",
+      "DependsOn": "AliasPolicy",
+      "Properties": {
+        "InstanceId": {"Ref": "ConnectInstanceArn"},
+        "IntegrationArn": {"Fn::GetAtt": ["ChatAlias", "Arn"]},
+        "IntegrationType": "LEX_BOT"
+      }
+    },
+    "ChatAdapter": {
+      "Type": "AWS::Serverless::Function",
+      "Properties": {
+        "CodeUri": "../src/chat_adapter/",
+        "Handler": "app.lambda_handler",
+        "Runtime": "python3.14",
+        "Architectures": [
+          "arm64"
+        ],
+        "Timeout": 55,
+        "MemorySize": 256,
+        "Environment": {
+          "Variables": {
+            "BUSINESS_HOOK_ARN": {
+              "Fn::Sub": "${BusinessHook.Arn}:chat"
+            }
+          }
+        },
+        "Policies": [
+          {
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Action": "lambda:InvokeFunction",
+                "Resource": {
+                  "Fn::Sub": "${BusinessHook.Arn}:chat"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "DependsOn": "BusinessHookAliaschat"
+    },
+    "Logs": {
+      "Type": "AWS::Logs::LogGroup",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "LogGroupName": {
+          "Fn::Sub": "/aws/lambda/${ChatAdapter}"
+        },
+        "RetentionInDays": 30
+      }
+    },
+    "ChatAlias": {
+      "Type": "AWS::Lex::BotAlias",
+      "Properties": {
+        "BotAliasName": "whatsapp_chat_test",
+        "BotId": {
+          "Ref": "ChatBot"
+        },
+        "BotVersion": {
+          "Fn::GetAtt": [
+            "ChatVersion",
+            "BotVersion"
+          ]
+        },
+        "Description": "WhatsApp chat formatting and contextual interactive responses",
+        "BotAliasLocaleSettings": [
+          {
+            "LocaleId": "es_US",
+            "BotAliasLocaleSetting": {
+              "Enabled": true,
+              "CodeHookSpecification": {
+                "LambdaCodeHook": {
+                  "CodeHookInterfaceVersion": "1.0",
+                  "LambdaArn": {
+                    "Fn::GetAtt": [
+                      "ChatAdapter",
+                      "Arn"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "LexPermission": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "FunctionName": {
+          "Ref": "ChatAdapter"
+        },
+        "Action": "lambda:InvokeFunction",
+        "Principal": "lexv2.amazonaws.com",
+        "SourceAccount": {
+          "Ref": "AWS::AccountId"
+        },
+        "SourceArn": {
+          "Fn::GetAtt": [
+            "ChatAlias",
+            "Arn"
+          ]
+        }
+      }
+    },
+    "AliasPolicy": {
+      "Type": "AWS::Lex::ResourcePolicy",
+      "Properties": {
+        "ResourceArn": {
+          "Fn::GetAtt": [
+            "ChatAlias",
+            "Arn"
+          ]
+        },
+        "Policy": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "connect.amazonaws.com"
+              },
+              "Action": [
+                "lex:RecognizeText",
+                "lex:StartConversation",
+                "lex:RecognizeMessageAsync"
+              ],
+              "Resource": {
+                "Fn::GetAtt": [
+                  "ChatAlias",
+                  "Arn"
+                ]
+              },
+              "Condition": {
+                "StringEquals": {
+                  "AWS:SourceAccount": {
+                    "Ref": "AWS::AccountId"
+                  }
+                },
+                "ArnEquals": {
+                  "AWS:SourceArn": {
+                    "Ref": "ConnectInstanceArn"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "BusinessHook": {
+      "Type": "AWS::Serverless::Function",
+      "Properties": {
+        "CodeUri": "../src/chat_business/",
+        "Handler": "lambda_function.lambda_handler",
+        "Runtime": "python3.14",
+        "Architectures": [
+          "arm64"
+        ],
+        "Timeout": 40,
+        "MemorySize": 512,
+        "AutoPublishAlias": "chat",
+        "Environment": {
+          "Variables": {
+            "APP_ENV": "chat-test",
+            "BEDROCK_SESSION_PREFIX": "chat-only",
+            "BEDROCK_RECLAMACIONES_AGENT_ID": {
+              "Ref": "ConfigBedrockReclamacionesAgentId"
+            },
+            "BEDROCK_CONSULTA_AGENT_ID": {
+              "Ref": "ConfigBedrockConsultaAgentId"
+            },
+            "SUPERVISOR_AGENT_ID": {
+              "Ref": "ConfigSupervisorAgentId"
+            },
+            "BEDROCK_RECLAMACIONES_AGENT_ALIAS_ID": {
+              "Ref": "ConfigBedrockReclamacionesAgentAliasId"
+            },
+            "BEDROCK_QUEJAS_AGENT_ALIAS_ID": {
+              "Ref": "ConfigBedrockQuejasAgentAliasId"
+            },
+            "SUPERVISOR_AGENT_ALIAS_ID": {
+              "Ref": "ConfigSupervisorAgentAliasId"
+            },
+            "BEDROCK_CONSULTA_AGENT_ALIAS_ID": {
+              "Ref": "ConfigBedrockConsultaAgentAliasId"
+            },
+            "BEDROCK_QUEJAS_AGENT_ID": {
+              "Ref": "ConfigBedrockQuejasAgentId"
+            },
+            "QCONNECT_ASSISTANT_ID": {
+              "Ref": "ConfigQconnectAssistantId"
+            },
+            "QCONNECT_ASSOCIATION_ID": {
+              "Ref": "ConfigQconnectAssociationId"
+            },
+            "AMAZON_Q_INTENT_NAME": {
+              "Ref": "ConfigAmazonQIntentName"
+            }
+          }
+        },
+        "Policies": [
+          {
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Action": "wisdom:Retrieve",
+                "Resource": {
+                  "Ref": "AssistantArn"
+                }
+              },
+              {
+                "Effect": "Allow",
+                "Action": "kms:Decrypt",
+                "Resource": {
+                  "Ref": "AssistantKmsKeyArn"
+                }
+              },
+              {
+                "Effect": "Allow",
+                "Action": "bedrock:InvokeAgent",
+                "Resource": [
+                  {
+                    "Fn::Sub": "arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:agent-alias/${ConfigBedrockQuejasAgentId}/${ConfigBedrockQuejasAgentAliasId}"
+                  },
+                  {
+                    "Fn::Sub": "arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:agent-alias/${ConfigBedrockReclamacionesAgentId}/${ConfigBedrockReclamacionesAgentAliasId}"
+                  },
+                  {
+                    "Fn::Sub": "arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:agent-alias/${ConfigBedrockConsultaAgentId}/${ConfigBedrockConsultaAgentAliasId}"
+                  }
+                ]
+              },
+              {
+                "Effect": "Allow",
+                "Action": "bedrock:InvokeModel",
+                "Resource": {
+                  "Fn::Sub": "arn:${AWS::Partition}:bedrock:${AWS::Region}::foundation-model/amazon.nova-micro-v1:0"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "BusinessLogs": {
+      "Type": "AWS::Logs::LogGroup",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "LogGroupName": {
+          "Fn::Sub": "/aws/lambda/${BusinessHook}"
+        },
+        "RetentionInDays": 30
+      }
+    },
+    "BotRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lexv2.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole",
+              "Condition": {
+                "StringEquals": {
+                  "aws:SourceAccount": {
+                    "Ref": "AWS::AccountId"
+                  }
+                },
+                "ArnLike": {
+                  "aws:SourceArn": {
+                    "Fn::Sub": "arn:${AWS::Partition}:lex:${AWS::Region}:${AWS::AccountId}:bot/*"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "ScopedChatAssistant",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "wisdom:CreateSession",
+                    "wisdom:GetAssistant"
+                  ],
+                  "Resource": [
+                    {
+                      "Ref": "AssistantArn"
+                    },
+                    {
+                      "Fn::Sub": "${AssistantArn}/*"
+                    }
+                  ]
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "wisdom:SendMessage",
+                    "wisdom:GetNextMessage"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:wisdom:${AWS::Region}:${AWS::AccountId}:session/${ConfigQconnectAssistantId}/*"
+                  }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "kms:Decrypt",
+                    "kms:GenerateDataKey"
+                  ],
+                  "Resource": {
+                    "Ref": "AssistantKmsKeyArn"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "ChatBot": {
+      "Type": "AWS::Lex::Bot",
+      "Properties": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-bot"
+        },
+        "RoleArn": {
+          "Fn::GetAtt": [
+            "BotRole",
+            "Arn"
+          ]
+        },
+        "DataPrivacy": {
+          "ChildDirected": false
+        },
+        "IdleSessionTTLInSeconds": 900,
+        "AutoBuildBotLocales": true,
+        "Description": "Independent WhatsApp chat bot; voice is not modified",
+        "BotLocales": [
+          {
+            "LocaleId": "es_US",
+            "NluConfidenceThreshold": 0.4,
+            "Intents": [
+              {
+                "Name": "AgenteHumano",
+                "Description": "Explicit human-agent transfer requests for Plaza Lama dev.",
+                "SampleUtterances": [
+                  {
+                    "Utterance": "agente"
+                  },
+                  {
+                    "Utterance": "representante"
+                  },
+                  {
+                    "Utterance": "asesor"
+                  },
+                  {
+                    "Utterance": "quiero hablar con un agente"
+                  },
+                  {
+                    "Utterance": "necesito hablar con un agente"
+                  },
+                  {
+                    "Utterance": "quiero hablar con un representante"
+                  },
+                  {
+                    "Utterance": "necesito un representante"
+                  },
+                  {
+                    "Utterance": "comunícame con un agente"
+                  },
+                  {
+                    "Utterance": "comunicame con un agente"
+                  },
+                  {
+                    "Utterance": "pásame con un agente"
+                  },
+                  {
+                    "Utterance": "pasame con un agente"
+                  },
+                  {
+                    "Utterance": "transferirme con un agente"
+                  },
+                  {
+                    "Utterance": "Hablar con un agente"
+                  },
+                  {
+                    "Utterance": "Atención con representante"
+                  },
+                  {
+                    "Utterance": "Hablar con un agente Atención con representante"
+                  }
+                ],
+                "DialogCodeHook": {
+                  "Enabled": true
+                },
+                "InitialResponseSetting": {
+                  "NextStep": {
+                    "DialogAction": {
+                      "Type": "InvokeDialogCodeHook"
+                    }
+                  },
+                  "CodeHook": {
+                    "EnableCodeHookInvocation": true,
+                    "IsActive": true,
+                    "PostCodeHookSpecification": {
+                      "SuccessNextStep": {
+                        "DialogAction": {
+                          "Type": "EndConversation"
+                        }
+                      },
+                      "FailureNextStep": {
+                        "DialogAction": {
+                          "Type": "EndConversation"
+                        }
+                      },
+                      "TimeoutNextStep": {
+                        "DialogAction": {
+                          "Type": "EndConversation"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "Name": "consulta",
+                "DialogCodeHook": {
+                  "Enabled": true
+                },
+                "InitialResponseSetting": {
+                  "NextStep": {
+                    "DialogAction": {
+                      "Type": "InvokeDialogCodeHook"
+                    },
+                    "Intent": {}
+                  },
+                  "CodeHook": {
+                    "EnableCodeHookInvocation": true,
+                    "IsActive": true,
+                    "PostCodeHookSpecification": {
+                      "SuccessNextStep": {
+                        "DialogAction": {
+                          "Type": "EndConversation"
+                        },
+                        "Intent": {}
+                      },
+                      "FailureNextStep": {
+                        "DialogAction": {
+                          "Type": "EndConversation"
+                        },
+                        "Intent": {}
+                      },
+                      "TimeoutNextStep": {
+                        "DialogAction": {
+                          "Type": "EndConversation"
+                        },
+                        "Intent": {}
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "Name": "Quejas",
+                "DialogCodeHook": {
+                  "Enabled": true
+                },
+                "InitialResponseSetting": {
+                  "NextStep": {
+                    "DialogAction": {
+                      "Type": "InvokeDialogCodeHook"
+                    },
+                    "Intent": {}
+                  },
+                  "CodeHook": {
+                    "EnableCodeHookInvocation": true,
+                    "IsActive": true,
+                    "PostCodeHookSpecification": {
+                      "SuccessNextStep": {
+                        "DialogAction": {
+                          "Type": "EndConversation"
+                        },
+                        "Intent": {}
+                      },
+                      "FailureNextStep": {
+                        "DialogAction": {
+                          "Type": "EndConversation"
+                        },
+                        "Intent": {}
+                      },
+                      "TimeoutNextStep": {
+                        "DialogAction": {
+                          "Type": "EndConversation"
+                        },
+                        "Intent": {}
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "Name": "FallbackIntent",
+                "Description": "Intención predeterminada cuando no coincide ninguna otra intención",
+                "ParentIntentSignature": "AMAZON.FallbackIntent",
+                "DialogCodeHook": {
+                  "Enabled": true
+                },
+                "InitialResponseSetting": {
+                  "NextStep": {
+                    "DialogAction": {
+                      "Type": "InvokeDialogCodeHook"
+                    },
+                    "Intent": {}
+                  },
+                  "CodeHook": {
+                    "EnableCodeHookInvocation": true,
+                    "IsActive": true,
+                    "PostCodeHookSpecification": {
+                      "SuccessNextStep": {
+                        "DialogAction": {
+                          "Type": "EndConversation"
+                        },
+                        "Intent": {}
+                      },
+                      "FailureNextStep": {
+                        "DialogAction": {
+                          "Type": "EndConversation"
+                        },
+                        "Intent": {}
+                      },
+                      "TimeoutNextStep": {
+                        "DialogAction": {
+                          "Type": "EndConversation"
+                        },
+                        "Intent": {}
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "Name": "MenuAyudaOpciones",
+                "SampleUtterances": [
+                  {
+                    "Utterance": "opciones"
+                  },
+                  {
+                    "Utterance": "menu"
+                  },
+                  {
+                    "Utterance": "menú"
+                  },
+                  {
+                    "Utterance": "ayuda"
+                  },
+                  {
+                    "Utterance": "qué opciones tengo"
+                  },
+                  {
+                    "Utterance": "que opciones tengo"
+                  },
+                  {
+                    "Utterance": "cuáles son las opciones"
+                  },
+                  {
+                    "Utterance": "cuales son las opciones"
+                  },
+                  {
+                    "Utterance": "dime las opciones"
+                  },
+                  {
+                    "Utterance": "volver al menú"
+                  },
+                  {
+                    "Utterance": "volver al menu"
+                  },
+                  {
+                    "Utterance": "menú principal"
+                  },
+                  {
+                    "Utterance": "menu principal"
+                  }
+                ],
+                "DialogCodeHook": {
+                  "Enabled": true
+                },
+                "InitialResponseSetting": {
+                  "NextStep": {
+                    "DialogAction": {
+                      "Type": "InvokeDialogCodeHook"
+                    }
+                  },
+                  "CodeHook": {
+                    "EnableCodeHookInvocation": true,
+                    "IsActive": true,
+                    "PostCodeHookSpecification": {
+                      "SuccessNextStep": {
+                        "DialogAction": {
+                          "Type": "EndConversation"
+                        }
+                      },
+                      "FailureNextStep": {
+                        "DialogAction": {
+                          "Type": "EndConversation"
+                        }
+                      },
+                      "TimeoutNextStep": {
+                        "DialogAction": {
+                          "Type": "EndConversation"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "Name": "RepetirUltimaRespuesta",
+                "SampleUtterances": [
+                  {
+                    "Utterance": "repite"
+                  },
+                  {
+                    "Utterance": "repítelo"
+                  },
+                  {
+                    "Utterance": "repitelo"
+                  },
+                  {
+                    "Utterance": "puedes repetir"
+                  },
+                  {
+                    "Utterance": "no escuché"
+                  },
+                  {
+                    "Utterance": "no escuche"
+                  },
+                  {
+                    "Utterance": "qué dijiste"
+                  },
+                  {
+                    "Utterance": "que dijiste"
+                  },
+                  {
+                    "Utterance": "dime eso otra vez"
+                  },
+                  {
+                    "Utterance": "puedes decirlo otra vez"
+                  }
+                ],
+                "DialogCodeHook": {
+                  "Enabled": true
+                },
+                "InitialResponseSetting": {
+                  "NextStep": {
+                    "DialogAction": {
+                      "Type": "InvokeDialogCodeHook"
+                    }
+                  },
+                  "CodeHook": {
+                    "EnableCodeHookInvocation": true,
+                    "IsActive": true,
+                    "PostCodeHookSpecification": {
+                      "SuccessNextStep": {
+                        "DialogAction": {
+                          "Type": "EndConversation"
+                        }
+                      },
+                      "FailureNextStep": {
+                        "DialogAction": {
+                          "Type": "EndConversation"
+                        }
+                      },
+                      "TimeoutNextStep": {
+                        "DialogAction": {
+                          "Type": "EndConversation"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "Name": "AmazonQinConnect",
+                "ParentIntentSignature": "AMAZON.QInConnectIntent",
+                "DialogCodeHook": {
+                  "Enabled": true
+                },
+                "FulfillmentCodeHook": {
+                  "Enabled": false,
+                  "PostFulfillmentStatusSpecification": {
+                    "SuccessResponse": {
+                      "MessageGroupsList": [
+                        {
+                          "Message": {
+                            "PlainTextMessage": {
+                              "Value": "((x-amz-lex:q-in-connect-response))"
+                            }
+                          }
+                        }
+                      ],
+                      "AllowInterrupt": true
+                    },
+                    "SuccessNextStep": {
+                      "DialogAction": {
+                        "Type": "EndConversation"
+                      }
+                    },
+                    "FailureNextStep": {
+                      "DialogAction": {
+                        "Type": "EndConversation"
+                      }
+                    },
+                    "TimeoutNextStep": {
+                      "DialogAction": {
+                        "Type": "EndConversation"
+                      }
+                    }
+                  },
+                  "IsActive": true
+                },
+                "QInConnectIntentConfiguration": {
+                  "QInConnectAssistantConfiguration": {
+                    "AssistantArn": {
+                      "Ref": "AssistantArn"
+                    }
+                  }
+                }
+              },
+              {
+                "Name": "reclamaciones",
+                "DialogCodeHook": {
+                  "Enabled": true
+                },
+                "InitialResponseSetting": {
+                  "NextStep": {
+                    "DialogAction": {
+                      "Type": "InvokeDialogCodeHook"
+                    },
+                    "Intent": {}
+                  },
+                  "CodeHook": {
+                    "EnableCodeHookInvocation": true,
+                    "IsActive": true,
+                    "PostCodeHookSpecification": {
+                      "SuccessNextStep": {
+                        "DialogAction": {
+                          "Type": "EndConversation"
+                        },
+                        "Intent": {}
+                      },
+                      "FailureNextStep": {
+                        "DialogAction": {
+                          "Type": "EndConversation"
+                        },
+                        "Intent": {}
+                      },
+                      "TimeoutNextStep": {
+                        "DialogAction": {
+                          "Type": "EndConversation"
+                        },
+                        "Intent": {}
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "Name": "Genera",
+                "SampleUtterances": [
+                  {
+                    "Utterance": "."
+                  }
+                ],
+                "DialogCodeHook": {
+                  "Enabled": true
+                },
+                "InitialResponseSetting": {
+                  "NextStep": {
+                    "DialogAction": {
+                      "Type": "InvokeDialogCodeHook"
+                    }
+                  },
+                  "CodeHook": {
+                    "EnableCodeHookInvocation": true,
+                    "IsActive": true,
+                    "PostCodeHookSpecification": {
+                      "SuccessNextStep": {
+                        "DialogAction": {
+                          "Type": "EndConversation"
+                        }
+                      },
+                      "FailureNextStep": {
+                        "DialogAction": {
+                          "Type": "EndConversation"
+                        }
+                      },
+                      "TimeoutNextStep": {
+                        "DialogAction": {
+                          "Type": "EndConversation"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "Name": "Cerrar",
+                "SampleUtterances": [
+                  {
+                    "Utterance": ".."
+                  }
+                ],
+                "DialogCodeHook": {
+                  "Enabled": true
+                },
+                "InitialResponseSetting": {
+                  "NextStep": {
+                    "DialogAction": {
+                      "Type": "InvokeDialogCodeHook"
+                    },
+                    "Intent": {}
+                  },
+                  "CodeHook": {
+                    "EnableCodeHookInvocation": true,
+                    "IsActive": true,
+                    "PostCodeHookSpecification": {
+                      "SuccessNextStep": {
+                        "DialogAction": {
+                          "Type": "EndConversation"
+                        },
+                        "Intent": {}
+                      },
+                      "FailureNextStep": {
+                        "DialogAction": {
+                          "Type": "EndConversation"
+                        },
+                        "Intent": {}
+                      },
+                      "TimeoutNextStep": {
+                        "DialogAction": {
+                          "Type": "EndConversation"
+                        },
+                        "Intent": {}
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "ChatVersion": {
+      "Type": "AWS::Lex::BotVersion",
+      "Properties": {
+        "BotId": {
+          "Ref": "ChatBot"
+        },
+        "Description": "Independent chat baseline",
+        "BotVersionLocaleSpecification": [
+          {
+            "LocaleId": "es_US",
+            "BotVersionLocaleDetails": {
+              "SourceBotVersion": "DRAFT"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "Outputs": {
+    "ChatAliasArn": {
+      "Description": "Alias for the allowlisted WhatsApp test flow",
+      "Value": {
+        "Fn::GetAtt": [
+          "ChatAlias",
+          "Arn"
+        ]
+      }
+    },
+    "ChatAdapterName": {
+      "Description": "Managed chat presentation hook",
+      "Value": {
+        "Ref": "ChatAdapter"
+      }
+    },
+    "ChatBotId": {
+      "Description": "Independent chat bot",
+      "Value": {
+        "Ref": "ChatBot"
+      }
+    },
+    "BusinessHookArn": {
+      "Description": "Chat-owned business hook alias",
+      "Value": {
+        "Fn::Sub": "${BusinessHook.Arn}:chat"
+      }
+    }
+  }
+}

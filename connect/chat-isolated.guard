@@ -1,0 +1,27 @@
+# Task-specific isolation and privacy checks, not a full compliance framework.
+rule chat_bot_is_independent {
+    Resources.ChatBot.Type == "AWS::Lex::Bot"
+    Resources.ChatAlias.Properties.BotId.Ref == "ChatBot"
+    Resources.ChatBot.Properties.DataPrivacy.ChildDirected == false
+    Resources.ChatAlias.Properties.ConversationLogSettings !exists
+}
+
+rule chat_business_is_owned {
+    Resources.BusinessHook.Type == "AWS::Serverless::Function"
+    Resources.BusinessHook.Properties.CodeUri == "../src/chat_business/"
+    Resources.BusinessHook.Properties.AutoPublishAlias == "chat"
+    Resources.ChatAdapter.Properties.Environment.Variables.BUSINESS_HOOK_ARN.'Fn::Sub' == "${BusinessHook.Arn}:chat"
+}
+
+rule logs_are_bounded_and_retained {
+    Resources.Logs.Properties.RetentionInDays == 30
+    Resources.BusinessLogs.Properties.RetentionInDays == 30
+    Resources.Logs.DeletionPolicy == "Retain"
+    Resources.BusinessLogs.DeletionPolicy == "Retain"
+}
+
+rule lex_invocation_is_scoped {
+    Resources.LexPermission.Properties.Principal == "lexv2.amazonaws.com"
+    Resources.LexPermission.Properties.SourceAccount.Ref == "AWS::AccountId"
+    Resources.LexPermission.Properties.SourceArn.'Fn::GetAtt'[0] == "ChatAlias"
+}
