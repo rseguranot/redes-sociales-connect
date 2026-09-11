@@ -25,3 +25,29 @@ El adaptador no registra eventos ni mensajes. El hook de negocio preexistente co
 Despliegue: validar y construir la plantilla SAM, preparar un change set con `BotId`, `BotVersion`, `BusinessHookArn` versionado y `ConnectInstanceArn` desde configuración privada. Revisar antes de ejecutar. Después actualizar el parámetro del flow mediante un segundo change set. Para revertir, restaurar el alias anterior en ese parámetro. Este stack auxiliar no representa un ambiente dev completo.
 
 Validación del 2026-09-11: prueba real en WhatsApp Web de consulta libre de sucursal → botones nativos → respuesta escrita “sí” → horario con negrita/viñetas → botón de dirección conservando la sucursal. La validación demuestra transporte y continuidad de esas rutas, no certifica la actualidad de todos los datos del catálogo.
+
+## Corrección de contexto de televisores (pendiente de despliegue)
+
+El adaptador reconoce consultas de precio de televisor en singular y plural. El
+hook versionado existente tiene una expresión `televisores?` que no reconoce el
+singular `televisor`; se normaliza la búsqueda a `televisores` sin modificar el
+hook compartido con otros canales.
+
+Los atributos `chat_product_*` conservan campos extraídos de producto: marca,
+medida, modelo, tecnología y sucursal. No almacenan el transcript completo.
+Una sucursal aportada como respuesta corta completa la consulta comercial, no
+dispara una consulta de horarios. Si falta medida/modelo, el bot permite indicar
+la medida o pulsar `Ver opciones` para consultar el catálogo sin ella. Las
+peticiones explícitas de agente, queja, reclamación, cierre o información de
+sucursal quedan a cargo del hook existente y abandonan el contexto de producto.
+
+`Otra consulta`, `menú` y `otro producto` devuelven el menú de cinco opciones sin
+llamar a la ruta de transferencia del hook. La sucursal indicada no certifica
+inventario ni precio local: las respuestas del catálogo lo aclaran expresamente.
+
+Validación local: 115 pruebas y 9 subpruebas aprobadas. Incluye la secuencia
+precio de televisor LG → sucursal → reiteración de precio → medida, cambios de
+marca/medida, modelo/tecnología, menú y salidas de contexto. Esta corrección no
+está desplegada ni certificada E2E; requiere validación CloudFormation, revisión
+de change set sin reemplazos ajenos y repetición real en el usuario protegido.
+No amplía el alcance a resolución de pedidos ni registro de casos CRM.
