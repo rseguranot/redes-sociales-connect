@@ -70,6 +70,60 @@ def test_handoff_close_is_not_turned_into_buttons():
     assert adapter.adapt(response, {})["messages"][0]["content"] == "Le comunicaré con un representante."
 
 
+def test_document_confirmation_preserves_leading_zeroes_and_has_buttons():
+    text = adapter.present("Documento de prueba: 000-1234567-8. ¿Es correcto?", {})
+    assert "000-1234567-8" in text
+    assert "[pregunta]\n¿Es correcto?\n[opcion] Sí\n[opcion] No" in text
+
+
+def test_unambiguous_confirmation_phrase_is_contextual():
+    attrs = {"bedrock_last_response": "Documento de prueba: QA. ¿Es correcto?"}
+    assert adapter.prepare(turn("Sí, es correcto.", attrs))["inputTranscript"] == "Sí"
+    assert adapter.prepare(turn("Sí, es correcto."))["inputTranscript"] == "Sí, es correcto."
+    correction = "Sí, pero cambia el documento a QA2"
+    assert adapter.prepare(turn(correction, attrs))["inputTranscript"] == correction
+    assert adapter.prepare(turn("No", attrs))["inputTranscript"] == "No"
+
+
+def test_case_lookup_switches_invoice_context_without_changing_identity():
+    attrs = {"bedrock_active_intent": "consulta", "social_user_id": "qa",
+             "bedrock_supervisor_session_id": "old-invoice"}
+    result = adapter.prepare(turn("Quiero consultar el caso 00001234.", attrs))
+    updated = result["sessionState"]["sessionAttributes"]
+    assert updated["bedrock_active_intent"] == "reclamaciones"
+    assert updated["social_user_id"] == "qa"
+    assert updated["bedrock_supervisor_session_id"] != "old-invoice"
+    assert result["inputTranscript"].endswith("número de caso 00001234")
+    for text in ["No quiero consultar el caso 00001234", "Consultar factura 00001234", "Hablar con un agente del caso 00001234"]:
+        assert adapter.prepare(turn(text, attrs))["inputTranscript"] == text
+
+
+def test_open_question_does_not_get_yes_no_buttons():
+    text = adapter.present("Puedo ayudarte. ¿Cuál es tu nombre?", {})
+    assert "\n\n¿Cuál" in text
+    assert "[plantilla]" not in text
+
+
+def test_mobile_format_preserves_bullets_italics_and_identifiers():
+    text = "**Resultado**\n\n- Caso 00001234\n- _Solo prueba_\n\n¿Algo más?"
+    assert adapter.readable_text(text) == text.replace("**", "*")
+
+
+def test_voice_case_repetition_becomes_one_bold_identifier():
+    text = "Registrado. Su número de caso es 0 0 0 0 1 2 3 4. Le repito, su número de caso es 0 0 0 0 1 2 3 4. ¿Algo más?"
+    assert adapter.readable_text(text) == "Registrado.\n\nNúmero de caso: *00001234*.\n\n¿Algo más?"
+    different = text.replace("Le repito, su número de caso es 0 0 0 0 1 2 3 4", "Le repito, su número de caso es 0 0 0 0 1 2 3 5")
+    assert "Le repito" in adapter.readable_text(different)
+
+
+def test_closed_response_formats_without_offering_buttons():
+    response = {"sessionState": {"dialogAction": {"type": "Close"}},
+                "messages": [{"contentType": "PlainText", "content": "**Gracias**. ¿Es correcto?"}]}
+    result = adapter.adapt(response, {})["messages"][0]["content"]
+    assert result == "*Gracias*.\n\n¿Es correcto?"
+    assert "[plantilla]" not in result
+
+
 def turn(text, attrs=None):
     return {"inputTranscript": text, "sessionState": {"sessionAttributes": copy.deepcopy(attrs or {})}}
 

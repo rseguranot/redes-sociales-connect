@@ -91,3 +91,73 @@ El cliente y el caso QA se conservan, marcados NO PROCESAR, para pruebas futuras
 No se borraron registros. Los identificadores operativos y los scripts de manejo
 del fixture permanecen en el directorio local ignorado `.aws-sam`, fuera de Git.
 En esta ronda no se cambió infraestructura, código del bot, voz ni agentes compartidos.
+
+## Ampliación: cédula sintética, entrega, instalación y presentación
+
+Ronda posterior con autorización explícita para continuar QA. Se creó otro
+Person Account ficticio, con tipo Cédula e identificador sintético exclusivo,
+sin teléfono ni correo reales. No representa una cédula legal válida: únicamente
+prueba la búsqueda de ese campo en CRM. Dos candidatos de marcador genérico
+colisionaron con registros existentes y fueron descartados sin reutilizarlos;
+se comprobó ausencia de colisión antes de crear el fixture definitivo.
+
+| Prueba real en WhatsApp | Resultado |
+|---|---|
+| Cédula con guiones → confirmación larga | Primera confirmación pidió repetir; se reprodujo con texto sin guiones y confirmación corta. No se atribuye el fallo solo a los guiones. |
+| Cédula sin guiones → «Sí, es correcto» después del ajuste | Cliente encontrado, con su reclamación existente. |
+| Nueva reclamación de entrega → descripción → fecha | Caso persistido en Salesforce con motivo Entrega y estado Abierto. |
+| Nueva reclamación de instalación → descripción → fecha/hora | Caso persistido con motivo Instalación y estado Abierto. |
+| «Quiero consultar el caso…» | Antes del ajuste se confundió con factura; después pidió confirmación y recuperó el caso de entrega. |
+| Número equivocado → botón No → número correcto → botón Sí | Recuperó el caso de instalación; no cerró al rechazar el primer número. |
+| Consulta de horarios y botón Ver dirección | Respuestas correctas para la sucursal seleccionada; negrita, lista y separación de líneas renderizadas. |
+| Consulta libre multilínea con negrita, viñetas y cursiva | WhatsApp renderizó el mensaje de prueba y el bot interpretó correctamente la consulta de horario. La cursiva se observó en el mensaje entrante; negritas/viñetas también en respuestas del bot. |
+| Estatus por lista → factura inexistente | Informó ausencia de información y pidió revisar el número. |
+| Corrección explícita desde factura a caso | Cambió a reclamaciones, confirmó el número y recuperó el caso QA de entrega. |
+| Estatus con factura real, lectura autorizada posteriormente | La API respondió HTTP 200 y WhatsApp mostró factura finalizada. No afirmó entrega física; no se modificó el pedido. |
+
+Los dos casos nuevos fueron creados por el recorrido normal de WhatsApp, no por
+una inserción directa para simular éxito. Se verificaron contra el Account QA.
+En el intervalo de creación aparecieron dos registros de notificación aceptada,
+sin certificar recepción en el buzón. El modelo omitió la etiqueta QA literal
+en la descripción de instalación; se reforzaron por API asunto/descripción de
+los casos propios. Siguen abiertos y marcados NO PROCESAR. No se alteraron
+clientes reales ni se borraron registros. La conservación determinista de la
+etiqueta QA por la herramienta compartida sigue siendo una limitación.
+
+### Ajustes publicados solo en el adaptador de chat
+
+- Confirmaciones explícitas «¿Es correcto?» presentan botones Sí/No reutilizando
+  el DSL existente; preguntas abiertas no reciben botones binarios arbitrarios.
+- Frases inequívocas como «Sí, es correcto» se normalizan solo cuando la pregunta
+  previa es de confirmación. Negaciones y respuestas con correcciones se conservan.
+- Consultas explícitas y acotadas de número de caso se dirigen a reclamaciones,
+  reiniciando el contexto de factura cuando corresponde y conservando identidad.
+- Preguntas se separan con una línea en blanco; `**negrita**` se adapta a
+  `*negrita*` de WhatsApp; `_cursiva_` y viñetas se preservan.
+- La repetición de voz del número de caso se sustituye por un único identificador
+  en negrita solo cuando ambas secuencias coinciden, conservando ceros iniciales.
+- Respuestas de cierre reciben formato básico, pero no nuevos botones.
+
+Dos change sets revisados del stack independiente: único cambio directo en
+código de ChatAdapter y referencias dependientes de alias/permisos/asociación.
+Sin reemplazos ajenos ni modificaciones del stack principal o agentes compartidos.
+Ambos stacks UPDATE_COMPLETE; hashes del flow y hook de voz sin cambios.
+Validación: 136 tests + 9 subtests, cfn-lint sin hallazgos, cuatro reglas Guard,
+smoke Lex de seis escenarios, nombre, cambio de tema y ocho sucursales × tres pasos.
+
+### Datos de pedidos y autorización posterior de lectura real
+
+El estatus de pedidos invoca una API de entregas distinta de Salesforce. Crear
+un cliente o caso en CRM no crea un pedido en esa API. Inicialmente se solicitó
+una factura exclusiva de QA. El usuario autorizó después consultar datos reales;
+la excepción se limita a lectura, sin borrar ni modificar los pedidos utilizados.
+Una búsqueda acotada de facturas marcadas con entrega encontró un registro que
+la API reconoce con HTTP 200 y estatus de factura cliente finalizada. No se
+publican sus identificadores ni los datos personales. Las pruebas de escritura
+siguen limitadas a clientes/casos ficticios propios.
+La consulta positiva se completó también en WhatsApp y coincidió con ese estado.
+No se borraron facturas, pedidos ni datos reales. Que la factura esté finalizada
+no certifica por sí solo entrega física. No se probaron todos los estados posibles
+de pedido (pendiente, ruta, devolución, cancelación, etc.).
+La reentrada tras cierre puede abrir el menú sin procesar el contenido inicial;
+se observó una vez tras registro y no se atribuye a una causa confirmada.

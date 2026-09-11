@@ -168,7 +168,27 @@ def prepare(event):
     event = copy.deepcopy(event)
     attrs = event.setdefault("sessionState", {}).setdefault("sessionAttributes", {})
     text = event.get("inputTranscript") or event.get("rawInputTranscript") or ""
+    case_query = re.fullmatch(
+        r"(?:no es una factura\.\s*)?(?:(?:quiero|deseo|necesito)\s+)?"
+        r"(?:consultar|ver|revisar)\s+(?:(?:mi|el|una)\s+)?"
+        r"(?:reclamacion\s+(?:con\s+)?(?:numero\s+de\s+)?)?"
+        r"caso\s+(?:numero\s+)?([0-9]{6,12})", normalized(text))
+    if case_query:
+        if attrs.get("bedrock_active_intent") != "reclamaciones":
+            reset_dialogue(attrs)
+        attrs["bedrock_active_intent"] = "reclamaciones"
+        attrs["routing_mode"] = "bedrock_supervisor"
+        attrs["bedrock_supervisor_active"] = "true"
+        # Explicit case lookup must not be classified as invoice status by Lex.
+        event["inputTranscript"] = "Quiero consultar mi reclamación con número de caso " + case_query[1]
+        event["rawInputTranscript"] = event["inputTranscript"]
     pending = attrs.pop("chat_pending_action", "")
+    previous = attrs.get("bedrock_last_response") or attrs.get("last_agent_response", "")
+    if re.search(r"¿(?:Es correcto|Son correctos estos datos)\?\s*$", previous, re.I):
+        answer = normalized(text).replace(",", "")
+        if answer in {"si es correcto", "si correcto", "es correcto", "si confirmo", "correcto"}:
+            event["inputTranscript"] = "Sí"
+            event["rawInputTranscript"] = "Sí"
     branch = attrs.get("branch_last_code", "")
     if normalized(text) in {"ver direccion", "ver horario"} and branch:
         event["inputTranscript"] = ("dirección de " if normalized(text) == "ver direccion" else "horario de ") + branch
@@ -202,6 +222,25 @@ def expired_promotion(text, today=None):
         return False
 
 
+def readable_text(text):
+    """Presentation only: preserve identifiers, facts and user-authored DSL."""
+    if text.lstrip().startswith("[plantilla]"):
+        return text
+    clean = re.sub(r"\*\*([^*]+)\*\*", r"*\1*", text).strip()
+    # Voice spells case digits and repeats them. Collapse only identical,
+    # explicitly labeled repetitions, keeping leading zeroes intact.
+    case = re.compile(r"Su número de caso es ([0-9](?:[ \t]*[0-9]){5,11})\. "
+                      r"Le repito, su número de caso es ([0-9](?:[ \t]*[0-9]){5,11})\.", re.I)
+    def case_summary(match):
+        first, second = (re.sub(r"\s", "", group) for group in match.groups())
+        return "\n\nNúmero de caso: *" + first + "*." if first == second else match[0]
+    clean = case.sub(case_summary, clean)
+    clean = re.sub(r"[ \t]+(?=¿)", "\n\n", clean)
+    clean = re.sub(r"[ \t]+\n", "\n", clean)
+    clean = re.sub(r"\n{3,}", "\n\n", clean)
+    return clean
+
+
 def present(text, attrs):
     if text.lstrip().startswith("[plantilla]"):
         return text
@@ -211,7 +250,7 @@ def present(text, attrs):
             "¿Cómo deseas continuar?", ["Consultar producto", "Hablar con un agente"])
     if "PercentageDiscount" in text or "Diferencia total:" in text:
         return "No tengo información comercial suficientemente clara para confirmar esa promoción.\n\n¿Qué producto deseas consultar?"
-    clean = re.sub(r"\*\*([^*]+)\*\*", r"*\1*", text).strip()
+    clean = readable_text(text)
     # Keep the exact facts; only split existing clauses for mobile reading.
     clean = re.sub(r";\s*(domingo\b)", r"\n- \1", clean, flags=re.I)
     clean = re.sub(r"\s+(¿?(?:Deseas|Desea|Te interesa|Buscas|Qué|Cual|Cuál)\b)", r"\n\n\1", clean)
@@ -220,6 +259,9 @@ def present(text, attrs):
         return "Para consultar el estatus de tu pedido, necesito el *número de factura*.\n\n¿Lo tienes a mano?"
     if "tiene que ver con un producto comprado" in norm:
         return template("Para orientarte correctamente:", text, ["Sí", "No"])
+    confirmation = re.search(r"¿(?:Es correcto|Son correctos estos datos)\?\s*$", clean, re.I)
+    if confirmation and clean[:confirmation.start()].strip():
+        return template(clean[:confirmation.start()].strip(), confirmation[0].strip(), ["Sí", "No"])
     if "deseas consultar el horario" in norm and attrs.get("branch_last_code"):
         attrs["chat_pending_action"] = "branch_hours"
         body = re.split(r"¿?Deseas consultar el horario", clean, flags=re.I)[0].strip()
@@ -248,6 +290,9 @@ def adapt(response, event):
             attrs[key] = source_attrs[key]
     action = response["sessionState"].get("dialogAction", {}).get("type")
     for message in response.get("messages", []):
+        if message.get("contentType") == "PlainText" and action == "Close":
+            # Closed conversations must never offer new interactive actions.
+            message["content"] = readable_text(message.get("content", ""))
         if message.get("contentType") == "PlainText" and action != "Close":
             message["content"] = present(message.get("content", ""), attrs)
             if source_attrs.get("chat_product_active") == "true":
