@@ -34,16 +34,19 @@ def main():
     if params[key] == outputs["ChatAliasArn"]:
         raise ValueError("Routing already uses isolated chat")
     args.rollback_file.parent.mkdir(parents=True, exist_ok=True)
+    rollback = {"stack": args.main_stack, "parameter": key,
+                "previous": params[key], "next": outputs["ChatAliasArn"]}
     if args.rollback_file.exists():
-        raise ValueError("Refusing to overwrite rollback record")
-    args.rollback_file.write_text(json.dumps({"stack": args.main_stack,
-        "parameter": key, "previous": params[key], "next": outputs["ChatAliasArn"]}), encoding="utf-8")
+        if json.loads(args.rollback_file.read_text(encoding="utf-8")) != rollback:
+            raise ValueError("Refusing to overwrite a different rollback record")
+    else:
+        args.rollback_file.write_text(json.dumps(rollback), encoding="utf-8")
     update = [{"ParameterKey": name, "ParameterValue": outputs["ChatAliasArn"]}
               if name == key else {"ParameterKey": name, "UsePreviousValue": True} for name in params]
     change_name = "route-isolated-chat-" + datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
     result = cfn.create_change_set(StackName=args.main_stack, ChangeSetName=change_name,
         ChangeSetType="UPDATE", UsePreviousTemplate=True, Parameters=update,
-        Capabilities=["CAPABILITY_IAM", "CAPABILITY_AUTO_EXPAND"])
+        Capabilities=["CAPABILITY_NAMED_IAM", "CAPABILITY_AUTO_EXPAND"])
     print(json.dumps({"change_set": result["Id"], "changed_parameter": key,
         "other_parameters_preserved": len(params) - 1, "protected_identity_configured": True}))
 
