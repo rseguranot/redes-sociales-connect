@@ -110,6 +110,7 @@ class ConnectArtifactsTests(unittest.TestCase):
             for item in ai_bot["Transitions"]["Conditions"]
         }
         self.assertEqual(routes["AgenteHumano"], "CheckNoTransferIdentity")
+        self.assertEqual(routes["Agentehumano"], "CheckNoTransferIdentity")
         identity_check = actions["CheckNoTransferIdentity"]
         self.assertEqual(
             identity_check["Parameters"]["ComparisonValue"],

@@ -103,6 +103,8 @@ La allowlist es temporal. Prefiera `DevelopmentSenderAssetIds` o `DevelopmentSoc
 
 El flow WhatsApp AI administrado entrega un único menú nativo desde el mismo bloque que mantiene abierta la conversación con el bot inteligente. Las opciones usan frases de negocio, no nombres técnicos de intents, y el cliente también puede ignorar la lista y escribir su consulta libremente. Al finalizar el bot no se agrega una despedida genérica desde el flow, para evitar respuestas duplicadas o un cierre aparente después de elegir una opción.
 
+Para mantener la prueba aislada, `DevelopmentAiBotAliasArn` debe apuntar al alias de Lex reservado para desarrollo. La versión publicada en ese alias debe configurar `AMAZON.QInConnectIntent` con el mismo asistente indicado por `DevelopmentAiAssistantArn`, y la política del alias debe autorizar a la instancia Connect correspondiente. El enrutamiento a representante acepta las variantes históricas `AgenteHumano` y `Agentehumano` que el bot puede devolver.
+
 `ChatConnectInstanceId` es opcional y afecta únicamente a la Lambda procesadora. Permite conservar el webhook y los recursos de ingreso en un stack mientras los chats se abren en una instancia Connect distinta para una prueba controlada.
 
 ## Colas y routing profiles de Connect

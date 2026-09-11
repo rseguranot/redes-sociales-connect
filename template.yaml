@@ -1095,6 +1095,7 @@ Resources:
                 "NextAction": "CaptureAiOutcome",
                 "Conditions": [
                   {"NextAction": "CheckNoTransferIdentity", "Condition": {"Operator": "Equals", "Operands": ["AgenteHumano"]}},
+                  {"NextAction": "CheckNoTransferIdentity", "Condition": {"Operator": "Equals", "Operands": ["Agentehumano"]}},
                   {"NextAction": "CaptureAiOutcome", "Condition": {"Operator": "Equals", "Operands": ["AmazonQinConnect"]}},
                   {"NextAction": "CaptureAiOutcome", "Condition": {"Operator": "Equals", "Operands": ["FallbackIntent"]}},
                   {"NextAction": "CaptureAiOutcome", "Condition": {"Operator": "Equals", "Operands": ["consulta"]}},
