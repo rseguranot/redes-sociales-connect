@@ -147,6 +147,8 @@ try {
     CreateConnectAttachmentsStorage = $createAttachmentsStorage.ToString().ToLowerInvariant()
     DevelopmentContactFlowId = if ($cfg.ContainsKey('DevelopmentContactFlowId')) { [string]$cfg.DevelopmentContactFlowId } else { '' }
     ProductionAiContactFlowId = if ($cfg.ContainsKey('ProductionAiContactFlowId')) { [string]$cfg.ProductionAiContactFlowId } else { '' }
+    ContactHistoryDays = if ($cfg.ContainsKey('ContactHistoryDays')) { [string]$cfg.ContactHistoryDays } else { '0' }
+    AgentMessageSignature = if ($cfg.ContainsKey('AgentMessageSignature')) { [string]$cfg.AgentMessageSignature } else { 'false' }
     ProductionAiSenderAssetIds = if ($cfg.ContainsKey('ProductionAiSenderAssetIds')) { [string]$cfg.ProductionAiSenderAssetIds } else { '' }
     CreateDevelopmentAiContactFlow = $createDevelopmentAiFlow.ToString().ToLowerInvariant()
     DevelopmentAiContactFlowName = [string](Get-ConfigValue 'DevelopmentAiContactFlowName' '00 DEV WhatsApp AI - Pruebas')

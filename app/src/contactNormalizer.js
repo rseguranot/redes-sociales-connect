@@ -15,6 +15,10 @@ export const SOCIAL_CONTACT_ATTRIBUTES = Object.freeze([
   "social_display_name",
   "social_phone",
   "social_message_id",
+  "social_history_token", "social_history_days", "social_last_agent_name", "social_last_agent_at",
+  "social_collected_name", "social_collected_phone", "social_service", "social_document_type",
+  "social_document_number", "social_case_number", "social_invoice_number", "social_request_detail",
+  "social_incident_location", "social_incident_date", "social_incident_area", "social_request_priority",
   "source_message_id",
   "customer_display_name",
   "customer_name",
@@ -96,5 +100,12 @@ export function normalizeContact(contactId, attributes = {}) {
     businessId: firstValue(attributes, ["social_business_id", "social_account_id"]),
     assetId: firstValue(attributes, ["social_asset_id"]),
     messageId: firstValue(attributes, ["social_message_id", "source_message_id"]),
+    historyToken: firstValue(attributes, ["social_history_token"]),
+    lastAgent: firstValue(attributes, ["social_last_agent_name"]),
+    collected: Object.fromEntries(Object.entries(attributes).filter(([key, value]) => value && [
+      "social_collected_name", "social_collected_phone", "social_service", "social_document_type",
+      "social_document_number", "social_case_number", "social_invoice_number", "social_request_detail",
+      "social_incident_location", "social_incident_date", "social_incident_area", "social_request_priority",
+    ].includes(key))),
   };
 }

@@ -16,6 +16,7 @@ import urllib.request
 import uuid
 import unicodedata
 from decimal import Decimal
+from datetime import datetime, timezone
 from typing import Any
 
 import boto3
@@ -47,6 +48,89 @@ _FRIENDLY_VARIABLE = re.compile(r"(?<!\{)\{([A-Za-z0-9_-]+)}(?!})")
 
 def _stable_id(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _history_enabled() -> bool:
+    return os.environ.get("CONTACT_HISTORY_DAYS") == "7"
+
+
+def _history_scope(identity_id: str, asset_id: str) -> str:
+    return "HISTORY#" + _stable_id(json.dumps(["whatsapp", asset_id, identity_id]))
+
+
+def _history_message(row: dict, event: dict) -> None:
+    """Store bounded transcript entries, never credentials or attachment URLs."""
+    if not _history_enabled() or not row.get("history_scope"):
+        return
+    role = str(event.get("ParticipantRole") or "").upper()
+    if role not in {"CUSTOMER", "SYSTEM", "AGENT"} or event.get("Type", "MESSAGE") not in {"MESSAGE", "ATTACHMENT"}:
+        return
+    now = int(time.time())
+    try:
+        stamp = int(datetime.fromisoformat(str(event["AbsoluteTime"]).replace("Z", "+00:00")).timestamp())
+    except (KeyError, ValueError, TypeError):
+        stamp = now
+    if stamp < now - 7 * 86400 or stamp > now + 300:
+        return
+    content = str(event.get("Content") or "")
+    if not content and not event.get("Attachments"):
+        return
+    # Do not persist bearer links to media in the agent history.
+    content = re.sub(r"https?://\S+", "[enlace omitido; consulte el adjunto original]", content)
+    name = " ".join(str(event.get("DisplayName") or ("Agente" if role == "AGENT" else role)).split())[:100]
+    event_id = str(event.get("Id") or _stable_id(json.dumps(event, sort_keys=True)))
+    entry = {"pk": row["history_scope"], "sk": f"MSG#{stamp:012d}#{_stable_id(event_id)}",
+             "timestamp": stamp, "contact_id": row["contact_id"], "role": role,
+             "name": name, "text": content[:16384],
+             "attachments": [str(a.get("AttachmentName") or "Adjunto")[:240] for a in event.get("Attachments", [])][:10],
+             "ttl": stamp + 7 * 86400}
+    ddb.put_item(Item=entry)
+    if role == "AGENT":
+        from boto3.dynamodb.conditions import Attr
+        try:
+            ddb.put_item(Item={"pk": row["history_scope"], "sk": "LAST_AGENT",
+                              "name": name, "timestamp": stamp, "contact_id": row["contact_id"]},
+                         ConditionExpression=Attr("timestamp").not_exists() | Attr("timestamp").lte(stamp))
+        except ddb.meta.client.exceptions.ConditionalCheckFailedException:
+            pass  # A delayed notification must not replace a more recent agent.
+
+
+def _agent_payload(payload: dict, event: dict) -> dict:
+    if os.environ.get("AGENT_MESSAGE_SIGNATURE") != "true" or event.get("ParticipantRole") != "AGENT":
+        return payload
+    name = re.sub(r"[*_~`\[\]<>]", "", " ".join(str(event.get("DisplayName") or "Agente").split()))[:80]
+    label = f"*{name}:*\n"
+    signed = json.loads(json.dumps(payload))
+    kind = signed.get("type")
+    if kind == "text":
+        signed["text"]["body"] = label + signed["text"]["body"][:4096 - len(label)]
+    elif kind == "interactive":
+        body = signed["interactive"].setdefault("body", {})
+        body["text"] = label + str(body.get("text") or "")[:1024 - len(label)]
+    elif kind in {"image", "video", "document"}:
+        signed[kind]["caption"] = label + str(signed[kind].get("caption") or "")[:1024 - len(label)]
+    return signed
+
+
+def _history_start(identity: dict, attributes: dict, event_id: str) -> tuple[str, str]:
+    if not _history_enabled() or not attributes.get("social_asset_id"):
+        return "", ""
+    from boto3.dynamodb.conditions import Attr
+    scope = _history_scope(identity["id"], attributes["social_asset_id"])
+    key = {"pk": "HISTORY_REQUEST#" + _stable_id(event_id), "sk": "GRANT"}
+    grant = ddb.get_item(Key=key, ConsistentRead=True).get("Item")
+    if not grant:
+        grant = {**key, "token": secure_random.token_urlsafe(32), "ttl": int(time.time()) + 8 * 86400}
+        try:
+            ddb.put_item(Item=grant, ConditionExpression=Attr("pk").not_exists())
+        except ddb.meta.client.exceptions.ConditionalCheckFailedException:
+            grant = ddb.get_item(Key=key, ConsistentRead=True)["Item"]
+    attributes.update(social_history_token=grant["token"], social_history_days="7")
+    last = ddb.get_item(Key={"pk": scope, "sk": "LAST_AGENT"}, ConsistentRead=True).get("Item") or {}
+    if last.get("name"):
+        attributes["social_last_agent_name"] = last["name"]
+        attributes["social_last_agent_at"] = str(last["timestamp"])
+    return scope, grant["token"]
 
 
 def _normalized_social_username(value: str) -> str:
@@ -665,7 +749,7 @@ def _session(
 ) -> tuple[dict[str, str], bool]:
     key = {"pk": f"IDENTITY#{identity['id']}", "sk": "SESSION"}
     current = ddb.get_item(Key=key, ConsistentRead=True).get("Item")
-    if current and int(current.get("expires_at", 0)) > int(time.time()):
+    if current and int(current.get("expires_at", 0)) > int(time.time()) and current.get("sender_asset_id", "") in {"", attributes.get("social_asset_id", "")}:
         try:
             described = connect.describe_contact(
                 InstanceId=os.environ["CONNECT_INSTANCE_ID"], ContactId=current["contact_id"]
@@ -676,6 +760,7 @@ def _session(
             pass
 
     idempotency_token = hashlib.sha256(event_id.encode()).hexdigest()
+    history_scope, history_token = _history_start(identity, attributes, event_id)
     requested_flow_id = attributes.pop("target_flow_id", None)
     development_flow_id = _development_contact_flow(identity, attributes.get("social_asset_id", ""))
     production_flow_id = _production_ai_contact_flow(attributes.get("social_asset_id", ""))
@@ -701,6 +786,16 @@ def _session(
         SupportedMessagingContentTypes=["text/plain", "text/markdown", "application/vnd.amazonaws.connect.message.interactive"],
         ClientToken=idempotency_token,
     )
+    if history_scope:
+        expires = int(time.time()) + 8 * 86400
+        ddb.put_item(Item={"pk": "HISTORY_ACCESS#" + _stable_id(history_token), "sk": "GRANT",
+                           "history_scope": history_scope, "contact_id": started["ContactId"],
+                           "expires_at": expires, "ttl": expires})
+        # Immutable mapping survives replacement of the current identity SESSION.
+        ddb.put_item(Item={"pk": "HISTORY_CONTACT#" + started["ContactId"], "sk": "MAP",
+                           "history_scope": history_scope, "contact_id": started["ContactId"],
+                           "identity_id": identity["id"], "phone": identity["phone"],
+                           "participant_token": started["ParticipantToken"], "ttl": expires})
     try:
         connect.start_contact_streaming(
             InstanceId=os.environ["CONNECT_INSTANCE_ID"], ContactId=started["ContactId"],
@@ -728,6 +823,8 @@ def _session(
         "user_id": identity["user_id"],
         "username": identity["username"],
         "customer_name": identity["name"],
+        "history_scope": history_scope,
+        "sender_asset_id": attributes.get("social_asset_id", ""),
         "gsi1pk": f"CONTACT#{started['ContactId']}",
         "gsi1sk": "SESSION",
         "expires_at": expires_at,
@@ -1217,6 +1314,12 @@ def _meta_event(body: dict[str, Any]) -> None:
                     )
                     if not is_new:
                         _send_connect(session, text, chat_content_type)
+                    if _history_enabled() and canonical["sender_asset_id"]:
+                        _history_message({"history_scope": _history_scope(identity["id"], canonical["sender_asset_id"]),
+                                          "contact_id": session["contact_id"]},
+                                         {"Id": message_id, "ParticipantRole": "CUSTOMER", "DisplayName": identity["name"],
+                                          "Content": canonical["message"]["text"], "Type": "MESSAGE",
+                                          "AbsoluteTime": datetime.fromtimestamp(int(message.get("timestamp") or time.time()), timezone.utc).isoformat()})
                     if is_media:
                         _enqueue_media({
                             "source": "media",
@@ -1344,7 +1447,9 @@ def _send_agent_attachments(event: dict[str, Any], row: dict[str, Any]) -> None:
             media = {"id": media_id}
             if kind == "document":
                 media["filename"] = filename
-            result = _send_whatsapp(identity, {"type": kind, kind: media})
+            if kind == "audio" and os.environ.get("AGENT_MESSAGE_SIGNATURE") == "true":
+                _send_whatsapp(identity, _agent_payload({"type": "text", "text": {"body": "Audio adjunto"}}, event))
+            result = _send_whatsapp(identity, _agent_payload({"type": kind, kind: media}, event))
             meta_id = str(((result.get("messages") or [{}])[0]).get("id") or "")
             if meta_id:
                 now = int(time.time())
@@ -1429,6 +1534,11 @@ def _connect_event(notification: dict[str, Any]) -> None:
     if isinstance(event, str):
         event = json.loads(event)
     event = event or {}
+    visibility = str((notification.get("MessageAttributes", {}).get("MessageVisibility") or {}).get("Value") or "ALL")
+    if visibility not in {"ALL", "CUSTOMER"}:
+        return  # Internal notes must never reach WhatsApp or customer history.
+    if event.get("Type", "MESSAGE") not in {"MESSAGE", "ATTACHMENT"}:
+        return
     participant_role = str(event.get("ParticipantRole", "")).upper()
     if participant_role not in {"AGENT", "SYSTEM"}:
         return
@@ -1436,9 +1546,13 @@ def _connect_event(notification: dict[str, Any]) -> None:
     if not contact_id:
         return
     rows = ddb.query(IndexName="ContactIndex", KeyConditionExpression=Key("gsi1pk").eq(f"CONTACT#{contact_id}"))["Items"]
+    if not rows and _history_enabled():
+        mapping = ddb.get_item(Key={"pk": "HISTORY_CONTACT#" + contact_id, "sk": "MAP"}, ConsistentRead=True).get("Item")
+        rows = [mapping] if mapping and int(mapping.get("ttl", 0)) > time.time() else []
     if not rows:
         return
     row = rows[0]
+    _history_message(row, event)
     if participant_role == "AGENT" and event.get("Attachments"):
         _send_agent_attachments(event, row)
         return
@@ -1459,7 +1573,7 @@ def _connect_event(notification: dict[str, Any]) -> None:
             return
         if system_payload is not None:
             interactive_type = str((system_payload.get("interactive") or {}).get("type") or "interactive")
-            _send_whatsapp(identity, system_payload)
+            _send_whatsapp(identity, _agent_payload(system_payload, event))
             _metric(
                 "MessagesProcessed",
                 Channel="whatsapp",
@@ -1478,10 +1592,10 @@ def _connect_event(notification: dict[str, Any]) -> None:
             }, separators=(",", ":")))
             _metric("TemplateDslRejected", Channel="whatsapp", Reason=str(exc)[:100])
             return
-        _send_whatsapp(identity, payload)
+        _send_whatsapp(identity, _agent_payload(payload, event))
         _metric("MessagesProcessed", Channel="whatsapp", Direction="outbound", MessageType=template_type)
         return
-    _send_whatsapp(identity, {"type": "text", "text": {"body": content[:4096], "preview_url": False}})
+    _send_whatsapp(identity, _agent_payload({"type": "text", "text": {"body": content[:4096], "preview_url": False}}, event))
     _metric("MessagesProcessed", Channel="whatsapp", Direction="outbound", MessageType="text")
 
 

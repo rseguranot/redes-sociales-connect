@@ -562,6 +562,43 @@ def _create_connect_session(event: dict[str, Any], body: dict[str, Any]) -> dict
     })
 
 
+def _contact_history_response(event: dict, actor: dict) -> dict:
+    """Session plus contact-scoped capability obtained exclusively through Connect SDK."""
+    if os.environ.get("CONTACT_HISTORY_DAYS") != "7":
+        return _response(404, {"error": "history_not_enabled"})
+    if not actor:
+        return _response(401, {"error": "connect_session_required"})
+    query = event.get("queryStringParameters") or {}
+    token = _header(event, "x-social-history-token")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{43}", token):
+        return _response(403, {"error": "contact_access_required"})
+    table = _ddb.Table(os.environ["STATE_TABLE"])
+    grant = table.get_item(Key={"pk": "HISTORY_ACCESS#" + _stable_id(token), "sk": "GRANT"}, ConsistentRead=True).get("Item")
+    now = int(time.time())
+    if not grant or int(grant.get("expires_at", 0)) <= now or not hmac.compare_digest(
+            str(grant.get("contact_id") or ""), str(query.get("contact_id") or "")):
+        return _response(403, {"error": "contact_access_required"})
+    cutoff = now - 7 * 86400
+    kwargs = {"KeyConditionExpression": Key("pk").eq(grant["history_scope"]) &
+              Key("sk").between(f"MSG#{cutoff:012d}#", f"MSG#{now:012d}#~"),
+              "Limit": 50, "ScanIndexForward": False, "ConsistentRead": True}
+    cursor = str(query.get("cursor") or "")
+    if cursor:
+        if not re.fullmatch(r"MSG#[0-9]{12}#[0-9a-f]{64}", cursor):
+            return _response(400, {"error": "invalid_cursor"})
+        kwargs["ExclusiveStartKey"] = {"pk": grant["history_scope"], "sk": cursor}
+    page = table.query(**kwargs)
+    fields = ("timestamp", "contact_id", "role", "name", "text", "attachments")
+    entries = [{**{k: item.get(k) for k in fields}, "id": item["sk"]}
+               for item in page.get("Items", []) if cutoff <= int(item.get("timestamp", 0)) <= now]
+    last = table.get_item(Key={"pk": grant["history_scope"], "sk": "LAST_AGENT"}, ConsistentRead=True).get("Item") or {}
+    response = _response(200, {"days": 7, "entries": entries,
+                               "last_agent": {k: last[k] for k in ("name", "timestamp") if k in last},
+                               "cursor": page.get("LastEvaluatedKey", {}).get("sk", "")})
+    response.setdefault("headers", {})["cache-control"] = "no-store"
+    return response
+
+
 def _session_actor(event: dict[str, Any]) -> dict[str, Any] | None:
     authorization = _header(event, "authorization")
     if not authorization.startswith("Bearer "):
@@ -1239,6 +1276,9 @@ def lambda_handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
         actor = _session_actor(event)
         if not actor:
             return _response(401, {"error": "connect_session_required"})
+
+    if path.endswith("/admin/contact-history") and method == "GET":
+        return _contact_history_response(event, actor or {})
 
     if path.endswith("/admin/access-profiles") and method in {"GET", "POST"}:
         body = None

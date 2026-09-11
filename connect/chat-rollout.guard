@@ -1,0 +1,15 @@
+# Focused controls for the minimal processed production template.
+rule history_requires_opt_in {
+    Resources.ProcessorFunction.Properties.Environment.Variables.CONTACT_HISTORY_DAYS.Ref == "ContactHistoryDays"
+    Resources.IngressFunction.Properties.Environment.Variables.CONTACT_HISTORY_DAYS.Ref == "ContactHistoryDays"
+    Parameters.ContactHistoryDays.AllowedValues == [0, 7]
+}
+rule agent_signature_requires_opt_in {
+    Resources.ProcessorFunction.Properties.Environment.Variables.AGENT_MESSAGE_SIGNATURE.Ref == "AgentMessageSignature"
+    Parameters.AgentMessageSignature.Default == "false"
+}
+rule production_routing_is_explicit {
+    Resources.ProcessorFunction.Properties.Environment.Variables.PRODUCTION_AI_CONTACT_FLOW_ID.Ref == "ProductionAiContactFlowId"
+    Resources.ProcessorFunction.Properties.Environment.Variables.PRODUCTION_AI_SENDER_ASSET_IDS.Ref == "ProductionAiSenderAssetIds"
+    Parameters.ProductionAiSenderAssetIds.Default == ""
+}

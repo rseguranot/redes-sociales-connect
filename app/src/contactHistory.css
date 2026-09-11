@@ -1,0 +1,15 @@
+.contact-history { margin: 16px 28px; border: 1px solid #dce3eb; border-radius: 12px; background: #fff; color: #253449; }
+.history-toggle { display: flex; justify-content: space-between; align-items: center; gap: 16px; width: 100%; padding: 16px; border: 0; background: transparent; text-align: left; cursor: pointer; }
+.history-toggle small { display: block; margin-top: 5px; color: #526175; }
+.history-body { border-top: 1px solid #e7ebf0; padding: 18px; }
+.history-body > p { color: #526175; line-height: 1.5; }
+.history-body dl { display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 12px; }
+.history-body dt { font-size: 12px; color: #526175; }.history-body dd { margin: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.history-body ol { list-style: none; margin: 16px 0; padding: 0; max-height: 520px; overflow-y: auto; }
+.history-body li { margin-bottom: 12px; border: 1px solid #e3e8ee; border-left: 3px solid #8095af; border-radius: 8px; padding: 14px; background: #f8fafc; }
+.history-body li[data-role="AGENT"] { border-left-color: #22775c; background: #f3faf6; }
+.history-body li header { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; }
+.history-body time, .history-body li > small { color: #526175; font-size: 12px; }
+.history-message { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; margin-top: 10px; }
+.history-body > button { border: 1px solid #c9d4e1; border-radius: 6px; background: #fff; padding: 8px 12px; cursor: pointer; }
+@media(max-width:640px) { .contact-history { margin: 12px; }.history-toggle { align-items: flex-start; } }

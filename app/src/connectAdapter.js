@@ -16,6 +16,8 @@ function publishContext(context) {
 async function startConnectRuntime() {
   let contactClient;
   let connectedHandler;
+  let clearedHandler;
+  let activeContactId;
   let started = false;
   try {
     const { provider } = AmazonConnectApp.init({
@@ -26,6 +28,8 @@ async function startConnectRuntime() {
       onDestroy: async () => {
         if (contactClient && connectedHandler)
           contactClient.offConnected(connectedHandler);
+        if (contactClient && clearedHandler)
+          contactClient.offCleared(clearedHandler);
       },
     });
     provider.onStart(async ({ context }) => {
@@ -47,11 +51,13 @@ async function startConnectRuntime() {
           availabilityState: "",
         };
         const publishContact = async (contactId) => {
+          activeContactId = contactId;
           if (!contactId)
             return publishContext({ mode: "connect", contact: null, agent });
           const attributes = await contactClient
             .getAttributes(contactId, ATTRIBUTES)
             .catch(() => ({}));
+          if (activeContactId !== contactId) return;
           publishContext({
             mode: "connect",
             contact: normalizeContact(contactId, attributes),
@@ -63,6 +69,10 @@ async function startConnectRuntime() {
         else await publishContact();
         connectedHandler = ({ contactId }) => publishContact(contactId);
         contactClient.onConnected(connectedHandler);
+        clearedHandler = ({ contactId }) => {
+          if (contactId === activeContactId) publishContact();
+        };
+        contactClient.onCleared(clearedHandler);
       } catch (error) {
         console.warn("Amazon Connect context unavailable.", error);
         publishContext({

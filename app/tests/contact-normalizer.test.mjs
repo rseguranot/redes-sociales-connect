@@ -1,6 +1,21 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { normalizeContact, SOCIAL_CONTACT_ATTRIBUTES } from "../src/contactNormalizer.js";
+import { historyText } from "../src/historyText.js";
+
+test("history capability and declared identity never replace Meta identity", () => {
+  const contact = normalizeContact("qa", {social_display_name:"Meta QA", social_collected_name:"Declarado QA", social_collected_phone:"not-verified", social_history_token:"qa-token"});
+  assert.equal(contact.name, "Meta QA");
+  assert.equal(contact.phone, "");
+  assert.equal(contact.historyToken, "qa-token");
+  assert.equal(contact.collected.social_collected_name, "Declarado QA");
+  assert.equal(contact.collected.social_history_token, undefined);
+});
+
+test("history presents DSL without executing HTML", () => {
+  assert.equal(historyText("[plantilla]\n[informacion]\nHola\n[opcion] Sí"), "Hola\n• Sí");
+  assert.equal(historyText("<script>evil</script>"), "<script>evil</script>");
+});
 
 test("channel-neutral contact attributes win over generic and WhatsApp fallbacks", () => {
   const originalWindow = globalThis.window;

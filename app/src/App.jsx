@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { ContactHistory } from "./ContactHistory";
 import {
   AddressBook,
   ArrowLeft,
@@ -1367,6 +1368,7 @@ export function App({ context: ctx }) {
       <Sidebar active={active} setActive={setActive} mode={ctx.mode} session={ctx.session} />
       <div className="main">
         <Topbar agent={ctx.agent} mode={ctx.mode} session={ctx.session} refreshing={refreshing} onRefresh={refresh} />
+        {ctx.contact && <ContactHistory key={ctx.contact.contactId} contact={ctx.contact} />}
         <div key={`${active}-${refreshVersion}`}>{pages[active]}</div>
       </div>
     </div>

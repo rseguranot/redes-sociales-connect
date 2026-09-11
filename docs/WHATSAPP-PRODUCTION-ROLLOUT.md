@@ -1,7 +1,9 @@
-# WhatsApp AI: preparación del despliegue productivo
+# WhatsApp AI: despliegue productivo
 
-Estado: **preparado, no activado**. La validación de un change set no certifica
-la transferencia real ni la visualización de datos en Agent Workspace.
+Estado al 2026-09-11: **activado para contactos nuevos del número productivo**.
+Bot independiente desplegado y stack del canal actualizado mediante change sets
+sin reemplazos. Un primer plan con reemplazo condicional ajeno al alcance no se
+ejecutó. Se preservaron las propiedades efectivas de los recursos no relacionados.
 
 ## Recursos y separación
 
@@ -16,7 +18,7 @@ va al horario/cola aun si falta un atributo opcional de captura. Los errores del
 bot intentan atención humana; los errores de cola se informan sin prometer una
 devolución de llamada que no esté implementada.
 
-## Activación posterior
+## Procedimiento de activación
 
 1. Construir y empaquetar el template generado mediante SAM.
 2. Crear y revisar un change set CREATE. No ejecutar cambios con errores de
@@ -62,3 +64,40 @@ real antes de declarar completa esa parte. No publicar PII en evidencias o Git.
 Pruebas del adaptador, diálogo, aislamiento y estructura de producción; pruebas
 del procesador en proceso separado; cfn-lint y reglas de Guard. Estas pruebas no
 sustituyen la validación E2E posterior al despliegue.
+
+## Historial de siete días y firma de agentes
+
+`ContactHistoryDays=7` habilita captura desde la activación, no una importación
+retroactiva. DynamoDB separa el historial por activo empresarial e identidad
+estable; no enlaza personas por nombre. Cada mensaje vence a los siete días y
+la API filtra la fecha explícitamente aunque TTL todavía no lo haya eliminado.
+Se guardan texto y nombres de adjuntos; las URLs se omiten. Los archivos y
+transcripciones originales continúan en Connect. El último agente se conserva
+como registro independiente y puede ser anterior a la ventana de mensajes.
+
+La aplicación muestra contexto recopilado, último agente y mensajes paginados.
+`GET /admin/contact-history` exige sesión de aplicación y una capacidad aleatoria
+del contacto activo, suministrada por el SDK de Connect. No permite seleccionar
+la identidad o partición desde el cliente. No registrar esta capacidad en logs.
+No sustituye ni amplía la autenticación general existente de la aplicación.
+
+`AgentMessageSignature=true` antepone el nombre de participante humano al texto
+o pie compatible, después de interpretar el DSL. No firma respuestas del bot.
+WhatsApp conserva el remitente empresarial; el nombre aparece dentro del mensaje.
+Eventos internos de visibilidad exclusiva de agentes no se envían al cliente.
+
+## Validación posterior al despliegue
+
+- Stack del bot CREATE_COMPLETE; canal e instalación de pruebas UPDATE_COMPLETE.
+- 53 pruebas pytest, 50 del procesador, 31 del ingreso y 24 de la aplicación
+  aprobadas; compilación de la aplicación y seis escenarios Lex aprobados.
+- WhatsApp real: menú, entrada de queja, botón No, captura de nombre ficticio y
+  solicitud de agente. No se creó una queja ni un caso CRM en esta ronda.
+- Un agente real aceptó y respondió; WhatsApp mostró su nombre en negrita.
+  No se ejecutó el cierre personal de pruebas. El contacto luego finalizó.
+- Se verificaron atributos recopilados, historial CUSTOMER/SYSTEM/AGENT y
+  registro del último agente. Vista local con datos ficticios validada; aplicación
+  publicada e invalidación CDN completada. **Pendiente confirmar visualmente el
+  panel en la sesión de un agente real**: el contacto terminó antes de solicitarlo.
+- Hashes del flow y hook de voz sin cambios. No certifica todas las variantes
+  de negocio, multimedia, recepción en buzón ni mensajes fuera de ventana Meta.

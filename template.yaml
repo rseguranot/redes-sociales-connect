@@ -68,6 +68,16 @@ Parameters:
     Default: ''
     AllowedPattern: '^$|^[0-9a-fA-F-]{36}$'
     Description: ID opcional de un flujo aislado de Connect para números de prueba.
+  ContactHistoryDays:
+    Type: Number
+    Default: 0
+    AllowedValues: [0, 7]
+    Description: Ventana del historial visible para agentes; 0 deshabilita la captura nueva.
+  AgentMessageSignature:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Firma mensajes humanos con el DisplayName recibido desde Connect.
   ProductionAiContactFlowId:
     Type: String
     Default: ''
@@ -506,7 +516,7 @@ Resources:
         # No se usan cookies. Las rutas administrativas validan además el origen,
         # un token de corta duración y el modo de autenticación configurado.
         AllowOrigins: ['*']
-        AllowHeaders: [authorization, content-type, x-hub-signature-256]
+        AllowHeaders: [authorization, content-type, x-hub-signature-256, x-social-history-token]
         AllowMethods: [GET, POST, OPTIONS]
       AccessLogSettings:
         # API Gateway stores the log-group ARN without the trailing `:*` returned by GetAtt Arn.
@@ -546,6 +556,7 @@ Resources:
           DEVELOPER_ROUTING_PROFILE_IDS: !Ref DeveloperRoutingProfileIds
           DEVELOPER_SECURITY_PROFILE_IDS: !Ref DeveloperSecurityProfileIds
           CONNECT_SESSION_SECONDS: '900'
+          CONTACT_HISTORY_DAYS: !Ref ContactHistoryDays
           MEDIA_REDIRECT_SECONDS: '300'
           META_GRAPH_VERSION: !Ref MetaGraphVersion
       Policies:
@@ -671,6 +682,8 @@ Resources:
           DEVELOPMENT_PHONE_NUMBERS: !Ref DevelopmentPhoneNumbers
           PRODUCTION_AI_CONTACT_FLOW_ID: !Ref ProductionAiContactFlowId
           PRODUCTION_AI_SENDER_ASSET_IDS: !Ref ProductionAiSenderAssetIds
+          CONTACT_HISTORY_DAYS: !Ref ContactHistoryDays
+          AGENT_MESSAGE_SIGNATURE: !Ref AgentMessageSignature
           DEVELOPMENT_SENDER_ASSET_IDS: !Ref DevelopmentSenderAssetIds
           DEVELOPMENT_SOCIAL_USER_IDS: !Ref DevelopmentSocialUserIds
           DEVELOPMENT_SOCIAL_USERNAMES: !Ref DevelopmentSocialUsernames
