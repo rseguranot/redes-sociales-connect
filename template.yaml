@@ -68,6 +68,16 @@ Parameters:
     Default: ''
     AllowedPattern: '^$|^[0-9a-fA-F-]{36}$'
     Description: ID opcional de un flujo aislado de Connect para números de prueba.
+  ProductionAiContactFlowId:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[0-9a-fA-F-]{36}$'
+    Description: Flow AI productivo; sólo aplica a los activos empresariales indicados.
+  ProductionAiSenderAssetIds:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[0-9, -]+$'
+    Description: IDs de números empresariales de Meta habilitados para AI para todos sus clientes.
   CreateDevelopmentAiContactFlow:
     Type: String
     Default: 'false'
@@ -659,6 +669,8 @@ Resources:
             - !Select [1, !Split ['/contact-flow/', !GetAtt DevelopmentAiContactFlow.ContactFlowArn]]
             - !Ref DevelopmentContactFlowId
           DEVELOPMENT_PHONE_NUMBERS: !Ref DevelopmentPhoneNumbers
+          PRODUCTION_AI_CONTACT_FLOW_ID: !Ref ProductionAiContactFlowId
+          PRODUCTION_AI_SENDER_ASSET_IDS: !Ref ProductionAiSenderAssetIds
           DEVELOPMENT_SENDER_ASSET_IDS: !Ref DevelopmentSenderAssetIds
           DEVELOPMENT_SOCIAL_USER_IDS: !Ref DevelopmentSocialUserIds
           DEVELOPMENT_SOCIAL_USERNAMES: !Ref DevelopmentSocialUsernames

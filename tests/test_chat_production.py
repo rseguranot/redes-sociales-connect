@@ -1,0 +1,42 @@
+"""Production flow invariants; no AWS calls or customer data."""
+import importlib.util
+import json
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+spec = importlib.util.spec_from_file_location("production_builder", ROOT / "scripts/build_production_chat_template.py")
+builder = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(builder)
+
+
+def test_generated_template_matches_source():
+    assert json.loads((ROOT / "connect/chat-production.json").read_text(encoding="utf-8")) == builder.build()
+
+
+def test_all_transitions_resolve_and_test_suppression_is_absent():
+    template = builder.build()
+    flow = json.loads(template["Resources"]["ProductionContactFlow"]["Properties"]["Content"]["Fn::Sub"])
+    actions = {a["Identifier"]: a for a in flow["Actions"]}
+    assert flow["StartAction"] in actions
+    assert not {"PersonalTestGreeting", "CheckNoTransferIdentity", "MarkTestComplete"} & actions.keys()
+    for action in actions.values():
+        transitions = action.get("Transitions", {})
+        for transition in [transitions] + transitions.get("Conditions", []) + transitions.get("Errors", []):
+            if "NextAction" in transition:
+                assert transition["NextAction"] in actions
+    human = [c for c in actions["AiBot"]["Transitions"]["Conditions"]
+             if c["Condition"]["Operands"][0].lower() == "agentehumano"]
+    assert human and all(c["NextAction"] == "CheckHours" for c in human)
+    assert actions["MarkHandoff"]["Transitions"]["NextAction"] == "TransferToQueue"
+    assert actions["CheckHandoff"]["Parameters"]["ComparisonValue"] == "$.Lex.SessionAttributes.agente"
+    assert actions["AiBot"]["Parameters"]["LexSessionAttributes"]["social_connect_contact_id"] == "$.ContactId"
+
+
+def test_production_is_separate_and_contact_write_is_scoped():
+    resources = builder.build()["Resources"]
+    assert resources["ChatAlias"]["Properties"]["BotAliasName"] == "whatsapp_chat_prod"
+    assert resources["BusinessHook"]["Properties"]["Environment"]["Variables"]["APP_ENV"] == "chat-prod"
+    statements = resources["ChatAdapter"]["Properties"]["Policies"][0]["Statement"]
+    writes = [s for s in statements if s["Action"] == "connect:UpdateContactAttributes"]
+    assert writes == [{"Effect": "Allow", "Action": "connect:UpdateContactAttributes",
+                       "Resource": {"Fn::Sub": "${ConnectInstanceArn}/contact/*"}}]

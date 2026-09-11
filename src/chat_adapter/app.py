@@ -9,11 +9,77 @@ from datetime import date
 
 import boto3
 from botocore.config import Config
+from botocore.exceptions import ClientError, ConnectionError, ReadTimeoutError
 
 client = boto3.client("lambda", config=Config(
     connect_timeout=3, read_timeout=50,
     retries={"total_max_attempts": 1, "mode": "standard"},
 ))
+contact_client = boto3.client("connect", config=Config(
+    connect_timeout=2, read_timeout=3,
+    retries={"total_max_attempts": 2, "mode": "standard"},
+))
+
+COLLECTED_FIELDS = {
+    "social_collected_name": ("nombre_cliente",),
+    "social_collected_phone": ("telefono_cliente",),
+    "social_service": ("bedrock_active_intent", "servicio", "origen_actual"),
+    "social_document_type": ("reclamacion_tipo_documento", "tipo_documento"),
+    "social_document_number": ("reclamacion_documento", "documento_cliente"),
+    "social_case_number": ("reclamacion_numero_caso",),
+    "social_invoice_number": ("consulta_factura",),
+    "social_request_detail": ("detalle_queja",),
+    "social_incident_location": ("lugar_queja", "branch_last_code"),
+    "social_incident_date": ("fecha_incidente",),
+    "social_incident_area": ("area_involucrada",),
+    "social_request_priority": ("nivel_criticidad", "nivel_queja"),
+}
+
+
+def collected_context(response, event):
+    """Allowlisted self-reported data, not provider identity or verified identity."""
+    attrs = response.get("sessionState", {}).get("sessionAttributes", {})
+    result = {}
+    for target, sources in COLLECTED_FIELDS.items():
+        value = next((str(attrs.get(k) or "").strip() for k in sources if attrs.get(k)), "")
+        if value and not value.startswith("$."):
+            result[target] = value[:1200 if target == "social_request_detail" else 256]
+    if result:
+        result["social_collected_data_source"] = "conversation_unverified"
+    text = event.get("inputTranscript") or event.get("rawInputTranscript") or ""
+    if text:
+        result["social_last_customer_message"] = str(text)[:1000]
+    messages = [m.get("content", "") for m in response.get("messages", [])
+                if m.get("contentType") == "PlainText"]
+    if messages:
+        result["social_last_bot_message"] = "\n".join(messages)[:1800]
+    result["social_handoff_requested"] = str(
+        attrs.get("agente") == "true" or attrs.get("routing_mode") == "agent_transfer").lower()
+    result["social_context_version"] = "1"
+    return result
+
+
+def persist_context(response, event):
+    instance = os.environ.get("CONTACT_CONTEXT_INSTANCE_ID", "")
+    source = event.get("sessionState", {}).get("sessionAttributes", {})
+    contact_id = source.get("social_connect_contact_id", "")
+    if not instance:
+        return response  # Existing isolated test deployments remain unchanged.
+    attrs = response.setdefault("sessionState", {}).setdefault("sessionAttributes", {})
+    if not re.fullmatch(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}", contact_id):
+        attrs["social_context_status"] = "missing_contact_id"
+        return response  # Standalone Lex probes do not have a Connect contact.
+    values = collected_context(response, event)
+    try:
+        contact_client.update_contact_attributes(
+            InstanceId=instance, InitialContactId=contact_id,
+            Attributes={**values, "social_context_status": "persisted"})
+        attrs["social_context_status"] = "persisted"
+    except (ClientError, ConnectionError, ReadTimeoutError):
+        # Do not retry the business action or lose the transfer on a capture failure.
+        attrs["social_context_status"] = "failed"
+        print(json.dumps({"event": "contact_context_persistence_failed"}))
+    return response
 
 
 def normalized(text):
@@ -310,7 +376,7 @@ def lambda_handler(event, context):
     prepared = prepare(event)
     reply = product_context(prepared)
     if reply is not None:
-        return reply
+        return persist_context(reply, event)
     result = client.invoke(FunctionName=os.environ["BUSINESS_HOOK_ARN"],
                            InvocationType="RequestResponse",
                            Payload=json.dumps(prepared, ensure_ascii=False).encode("utf-8"))
@@ -318,4 +384,4 @@ def lambda_handler(event, context):
         response = json.loads(stream.read())
     if result.get("FunctionError"):
         raise RuntimeError("business_hook_failed")
-    return adapt(response, prepared)
+    return persist_context(adapt(response, prepared), event)

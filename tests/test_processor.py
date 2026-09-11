@@ -37,6 +37,16 @@ spec.loader.exec_module(processor)
 
 
 class ParserTests(unittest.TestCase):
+    def test_production_routing_requires_exact_business_sender_asset(self):
+        from unittest.mock import patch
+        with patch.dict(os.environ, {"PRODUCTION_AI_CONTACT_FLOW_ID": "prod-flow", "PRODUCTION_AI_SENDER_ASSET_IDS": "111, 222"}):
+            self.assertEqual(processor._production_ai_contact_flow("111"), "prod-flow")
+            self.assertEqual(processor._production_ai_contact_flow("222"), "prod-flow")
+            for value in ("", "11", "1111", "dev-asset", "@test-user"):
+                self.assertEqual(processor._production_ai_contact_flow(value), "")
+        with patch.dict(os.environ, {"PRODUCTION_AI_CONTACT_FLOW_ID": "", "PRODUCTION_AI_SENDER_ASSET_IDS": "111"}):
+            self.assertEqual(processor._production_ai_contact_flow("111"), "")
+
     def test_bsuid_and_username_are_preferred(self):
         change = {"contacts": [{"user_id": "US.123", "profile": {"username": "cliente", "name": "Ana"}}]}
         identity = processor._identity(change, {"from_user_id": "US.123"})

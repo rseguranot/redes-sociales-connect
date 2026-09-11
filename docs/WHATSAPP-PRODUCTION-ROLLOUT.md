@@ -1,0 +1,64 @@
+# WhatsApp AI: preparación del despliegue productivo
+
+Estado: **preparado, no activado**. La validación de un change set no certifica
+la transferencia real ni la visualización de datos en Agent Workspace.
+
+## Recursos y separación
+
+`scripts/build_production_chat_template.py` genera `connect/chat-production.json`
+a partir de los recursos independientes de chat y del flujo de pruebas. Crea
+otro bot Lex, alias, hooks, alarmas y flujo, sin modificar voz ni el bot de pruebas.
+Todos los identificadores operativos se suministran mediante parámetros privados.
+
+El flujo productivo respeta el horario y la cola indicados. No contiene la
+supresión de transferencia personal. Una solicitud explícita de representante
+va al horario/cola aun si falta un atributo opcional de captura. Los errores del
+bot intentan atención humana; los errores de cola se informan sin prometer una
+devolución de llamada que no esté implementada.
+
+## Activación posterior
+
+1. Construir y empaquetar el template generado mediante SAM.
+2. Crear y revisar un change set CREATE. No ejecutar cambios con errores de
+   validación ni reemplazos ajenos al alcance. Obtener autorización de ejecución.
+3. Desplegar y comprobar el bot/flujo antes de cambiar el número productivo.
+4. En el stack del canal, desplegar el procesador y configurar
+   `ProductionAiContactFlowId` y `ProductionAiSenderAssetIds` con el flow nuevo y
+   el ID exacto del número empresarial de Meta. Conservar los demás parámetros.
+   Guardar estos valores también en la configuración privada de despliegue.
+5. Revisar el segundo change set: sólo procesador/configuración relacionada.
+6. Probar WhatsApp real, recepción por un agente y atributos del historial.
+   Comprobar que voz y rutas de otros números no cambiaron.
+
+El enrutamiento aplica a **contactos nuevos** de los activos configurados, sin
+allowlist de clientes. Las sesiones activas conservan su contacto. Los destinos
+explícitos de campañas conservan prioridad; otros activos conservan sus rutas.
+Para revertir el enrutamiento, vaciar los dos parámetros mediante change set;
+no eliminar recursos ni interrumpir conversaciones activas.
+
+## Contexto para agentes e historial
+
+El adaptador persiste mediante `UpdateContactAttributes` una lista explícita:
+nombre/teléfono declarados, servicio, documento, referencia de caso o factura,
+detalle, lugar, fecha, área y prioridad, cuando existen en la sesión del bot.
+También conserva el último mensaje del cliente, la última respuesta y el estado
+de transferencia. Son atributos `social_*` del contacto, no volcados del evento.
+
+`social_collected_name` y `social_collected_phone` **no sustituyen** a
+`social_display_name` o `social_phone`. `social_collected_data_source` indica
+`conversation_unverified`: escribir una cédula no acredita la identidad.
+No se usa el identificador de correo interno como número de caso CRM.
+
+`social_context_status` distingue persistencia, fallo y falta de ContactId.
+Un fallo de persistencia no repite la acción de negocio. Las trazas de ese fallo
+no incluyen contenido ni identificadores del cliente.
+
+Persistir atributos no significa que el CCP estándar muestre automáticamente
+una ficha. Se debe verificar la interfaz de agente y el historial con un contacto
+real antes de declarar completa esa parte. No publicar PII en evidencias o Git.
+
+## Evidencia local
+
+Pruebas del adaptador, diálogo, aislamiento y estructura de producción; pruebas
+del procesador en proceso separado; cfn-lint y reglas de Guard. Estas pruebas no
+sustituyen la validación E2E posterior al despliegue.

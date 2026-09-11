@@ -53,6 +53,12 @@ def _normalized_social_username(value: str) -> str:
     return str(value or "").strip().lower().lstrip("@")
 
 
+def _production_ai_contact_flow(sender_asset_id: str) -> str:
+    flow_id = os.environ.get("PRODUCTION_AI_CONTACT_FLOW_ID", "").strip()
+    assets = {value.strip() for value in os.environ.get("PRODUCTION_AI_SENDER_ASSET_IDS", "").split(",") if value.strip()}
+    return flow_id if sender_asset_id and sender_asset_id in assets else ""
+
+
 def _development_contact_flow(identity: dict[str, str], sender_asset_id: str = "") -> str:
     """Return the isolated Connect flow for an allow-listed customer or business sender."""
     flow_id = os.environ.get("DEVELOPMENT_CONTACT_FLOW_ID", "").strip()
@@ -672,13 +678,20 @@ def _session(
     idempotency_token = hashlib.sha256(event_id.encode()).hexdigest()
     requested_flow_id = attributes.pop("target_flow_id", None)
     development_flow_id = _development_contact_flow(identity, attributes.get("social_asset_id", ""))
-    if development_flow_id:
+    production_flow_id = _production_ai_contact_flow(attributes.get("social_asset_id", ""))
+    # Campaigns with an explicit destination retain their existing business flow.
+    if production_flow_id and requested_flow_id:
+        production_flow_id = ""
+        development_flow_id = ""
+    if production_flow_id:
+        attributes["routing_rule"] = "production_ai_sender"
+    elif development_flow_id:
         attributes["routing_rule"] = "development_sender"
     elif requested_flow_id:
         attributes["routing_rule"] = "campaign_button"
     started = connect.start_chat_contact(
         InstanceId=os.environ["CONNECT_INSTANCE_ID"],
-        ContactFlowId=development_flow_id or requested_flow_id or os.environ["DEFAULT_CONTACT_FLOW_ID"],
+        ContactFlowId=production_flow_id or development_flow_id or requested_flow_id or os.environ["DEFAULT_CONTACT_FLOW_ID"],
         ParticipantDetails={"DisplayName": _participant_display_name(identity)},
         Attributes={k: v[:32767] for k, v in attributes.items() if v},
         InitialMessage={

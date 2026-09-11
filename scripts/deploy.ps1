@@ -146,6 +146,8 @@ try {
     ConnectContextModuleName = [string](Get-ConfigValue 'ConnectContextModuleName' '00 MOD Social - Inicializar contexto')
     CreateConnectAttachmentsStorage = $createAttachmentsStorage.ToString().ToLowerInvariant()
     DevelopmentContactFlowId = if ($cfg.ContainsKey('DevelopmentContactFlowId')) { [string]$cfg.DevelopmentContactFlowId } else { '' }
+    ProductionAiContactFlowId = if ($cfg.ContainsKey('ProductionAiContactFlowId')) { [string]$cfg.ProductionAiContactFlowId } else { '' }
+    ProductionAiSenderAssetIds = if ($cfg.ContainsKey('ProductionAiSenderAssetIds')) { [string]$cfg.ProductionAiSenderAssetIds } else { '' }
     CreateDevelopmentAiContactFlow = $createDevelopmentAiFlow.ToString().ToLowerInvariant()
     DevelopmentAiContactFlowName = [string](Get-ConfigValue 'DevelopmentAiContactFlowName' '00 DEV WhatsApp AI - Pruebas')
     DevelopmentMenuBotAliasArn = if ($cfg.ContainsKey('DevelopmentMenuBotAliasArn')) { [string]$cfg.DevelopmentMenuBotAliasArn } else { '' }

@@ -124,6 +124,42 @@ def test_closed_response_formats_without_offering_buttons():
     assert "[plantilla]" not in result
 
 
+def test_contact_capture_is_allowlisted_and_never_replaces_meta_identity():
+    response = {"sessionState": {"sessionAttributes": {
+        "nombre_cliente": "Prueba QA", "telefono_cliente": "2025550100",
+        "detalle_queja": "Detalle ficticio", "agente": "true",
+        "social_phone": "provider-value", "token": "secret", "case_id": "email-hash"}}}
+    captured = adapter.collected_context(response, turn("Representante"))
+    assert captured["social_collected_name"] == "Prueba QA"
+    assert captured["social_collected_phone"] == "2025550100"
+    assert captured["social_handoff_requested"] == "true"
+    assert captured["social_collected_data_source"] == "conversation_unverified"
+    assert not {"social_phone", "token", "social_case_number"} & captured.keys()
+
+
+def test_contact_capture_bounds_untrusted_text():
+    response = {"sessionState": {"sessionAttributes": {"detalle_queja": "x" * 50000}}}
+    assert len(adapter.collected_context(response, turn("x" * 10000))["social_request_detail"]) == 1200
+
+
+def test_persistence_uses_only_configured_instance_and_flow_contact():
+    contact = "00000000-0000-0000-0000-000000000001"
+    event = turn("Prueba QA", {"social_connect_contact_id": contact})
+    response = {"sessionState": {"sessionAttributes": {"nombre_cliente": "Prueba QA"}}}
+    with patch.dict(adapter.os.environ, {"CONTACT_CONTEXT_INSTANCE_ID": "configured-instance"}), patch.object(adapter, "contact_client") as client:
+        adapter.persist_context(response, event)
+        args = client.update_contact_attributes.call_args.kwargs
+        assert args["InstanceId"] == "configured-instance" and args["InitialContactId"] == contact
+        assert args["Attributes"]["social_collected_name"] == "Prueba QA"
+        assert response["sessionState"]["sessionAttributes"]["social_context_status"] == "persisted"
+
+
+def test_lex_probe_does_not_write_a_contact():
+    with patch.dict(adapter.os.environ, {"CONTACT_CONTEXT_INSTANCE_ID": "configured-instance"}), patch.object(adapter, "contact_client") as client:
+        adapter.persist_context({}, turn("Hola"))
+        client.update_contact_attributes.assert_not_called()
+
+
 def turn(text, attrs=None):
     return {"inputTranscript": text, "sessionState": {"sessionAttributes": copy.deepcopy(attrs or {})}}
 
