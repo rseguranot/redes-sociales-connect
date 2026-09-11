@@ -465,7 +465,16 @@ class ParserTests(unittest.TestCase):
         finally:
             processor.ddb, processor.connect, processor.participant = original_ddb, original_connect, original_participant
         self.assertEqual(calls[0]["ContactFlowId"], "dev-flow")
-        self.assertEqual(calls[0]["Attributes"]["routing_rule"], "development_phone")
+        self.assertEqual(calls[0]["Attributes"]["routing_rule"], "development_sender")
+
+    def test_development_flow_routes_by_business_sender_asset(self):
+        os.environ.update({
+            "DEVELOPMENT_CONTACT_FLOW_ID": "dev-flow",
+            "DEVELOPMENT_PHONE_NUMBERS": "",
+            "DEVELOPMENT_SENDER_ASSET_IDS": "sender-asset-1",
+        })
+        self.assertEqual(processor._development_contact_flow("", "sender-asset-1"), "dev-flow")
+        self.assertEqual(processor._development_contact_flow("", "other-asset"), "")
 
     def test_media_worker_processes_media_task(self):
         calls = []

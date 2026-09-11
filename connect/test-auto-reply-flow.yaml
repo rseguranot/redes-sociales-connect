@@ -1,0 +1,34 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Isolated Amazon Connect chat test flow; replies once and terminates.
+Parameters:
+  ConnectInstanceId:
+    Type: String
+    AllowedPattern: '^[0-9a-fA-F-]{36}$'
+  FlowName:
+    Type: String
+    Default: '00 TEST WhatsApp Dev - Recibido'
+Resources:
+  AutoReplyFlow:
+    Type: AWS::Connect::ContactFlow
+    Properties:
+      InstanceArn: !Sub 'arn:${AWS::Partition}:connect:${AWS::Region}:${AWS::AccountId}:instance/${ConnectInstanceId}'
+      Name: !Ref FlowName
+      Description: Reply-only flow for the isolated WhatsApp development number.
+      State: ACTIVE
+      Type: CONTACT_FLOW
+      Content: |
+        {
+          "Version": "2019-10-30",
+          "StartAction": "EnableLogging",
+          "Metadata": {"entryPointPosition":{"x":40,"y":40},"ActionMetadata":{"EnableLogging":{"position":{"x":160,"y":40}},"WaitForConnection":{"position":{"x":380,"y":40}},"ReplyReceived":{"position":{"x":620,"y":40}},"WaitForDelivery":{"position":{"x":860,"y":40}},"EndContact":{"position":{"x":1100,"y":40}}},"Annotations":[]},
+          "Actions": [
+            {"Identifier":"EnableLogging","Type":"UpdateFlowLoggingBehavior","Parameters":{"FlowLoggingBehavior":"Enabled"},"Transitions":{"NextAction":"WaitForConnection"}},
+            {"Identifier":"WaitForConnection","Type":"Wait","Parameters":{"TimeLimitSeconds":"5"},"Transitions":{"NextAction":"ReplyReceived","Conditions":[{"NextAction":"ReplyReceived","Condition":{"Operator":"Equals","Operands":["WaitCompleted"]}}],"Errors":[{"NextAction":"ReplyReceived","ErrorType":"NoMatchingError"}]}},
+            {"Identifier":"ReplyReceived","Type":"MessageParticipant","Parameters":{"Text":"Recibido"},"Transitions":{"NextAction":"WaitForDelivery","Errors":[{"NextAction":"EndContact","ErrorType":"NoMatchingError"}]}},
+            {"Identifier":"WaitForDelivery","Type":"Wait","Parameters":{"TimeLimitSeconds":"10"},"Transitions":{"NextAction":"EndContact","Conditions":[{"NextAction":"EndContact","Condition":{"Operator":"Equals","Operands":["WaitCompleted"]}}],"Errors":[{"NextAction":"EndContact","ErrorType":"NoMatchingError"}]}},
+            {"Identifier":"EndContact","Type":"DisconnectParticipant","Parameters":{},"Transitions":{}}
+          ]
+        }
+Outputs:
+  ContactFlowId:
+    Value: !Select [1, !Split ['/contact-flow/', !GetAtt AutoReplyFlow.ContactFlowArn]]

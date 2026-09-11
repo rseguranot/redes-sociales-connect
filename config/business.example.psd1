@@ -16,6 +16,8 @@
   # Amazon Connect. Por defecto CloudFormation crea un flow mínimo portable que
   # inicializa el contexto social y transfiere el contacto a ConnectQueueId.
   ConnectInstanceId = '00000000-0000-0000-0000-000000000000'
+  # Opcional: permite que sólo el procesador abra chats en otra instancia.
+  ChatConnectInstanceId = ''
   CreateDefaultContactFlow = $true
   ManagedContactFlowName = '00 Redes Sociales - Ingreso'
   ConnectQueueId = '00000000-0000-0000-0000-000000000000'
@@ -27,6 +29,7 @@
   # Enrutamiento controlado de desarrollo. Nunca publique números reales en Git.
   DevelopmentContactFlowId = ''
   DevelopmentPhoneNumbers = ''
+  DevelopmentSenderAssetIds = ''
   TemplateDslMode = 'disabled'
   TemplateDslPhoneNumbers = ''
   DeveloperRoutingProfileIds = ''

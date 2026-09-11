@@ -49,8 +49,8 @@ def _stable_id(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-def _development_contact_flow(phone: str) -> str:
-    """Return the isolated Connect flow for an explicitly allow-listed phone."""
+def _development_contact_flow(phone: str, sender_asset_id: str = "") -> str:
+    """Return the isolated Connect flow for an allow-listed customer or business sender."""
     flow_id = os.environ.get("DEVELOPMENT_CONTACT_FLOW_ID", "").strip()
     if not flow_id:
         return ""
@@ -60,7 +60,14 @@ def _development_contact_flow(phone: str) -> str:
         for value in os.environ.get("DEVELOPMENT_PHONE_NUMBERS", "").split(",")
         if value.strip()
     }
-    return flow_id if normalized_phone and normalized_phone in allowed else ""
+    allowed_assets = {
+        value.strip()
+        for value in os.environ.get("DEVELOPMENT_SENDER_ASSET_IDS", "").split(",")
+        if value.strip()
+    }
+    customer_allowed = bool(normalized_phone and normalized_phone in allowed)
+    sender_allowed = bool(sender_asset_id and sender_asset_id in allowed_assets)
+    return flow_id if customer_allowed or sender_allowed else ""
 
 
 def _normalized_phone(value: str) -> str:
@@ -561,9 +568,9 @@ def _session(
 
     idempotency_token = hashlib.sha256(event_id.encode()).hexdigest()
     requested_flow_id = attributes.pop("target_flow_id", None)
-    development_flow_id = _development_contact_flow(identity["phone"])
+    development_flow_id = _development_contact_flow(identity["phone"], attributes.get("social_asset_id", ""))
     if development_flow_id:
-        attributes["routing_rule"] = "development_phone"
+        attributes["routing_rule"] = "development_sender"
     elif requested_flow_id:
         attributes["routing_rule"] = "campaign_button"
     started = connect.start_chat_contact(

@@ -77,6 +77,7 @@ El archivo local debe permanecer ignorado por Git. Use nombres únicos por cuent
   DefaultTemplateLanguage = 'es'
 
   ConnectInstanceId = '00000000-0000-0000-0000-000000000000'
+  ChatConnectInstanceId = ''
   ConnectQueueId = '11111111-1111-1111-1111-111111111111'
   CreateDefaultContactFlow = $true
   ManagedContactFlowName = '00 Redes Sociales DEV - Ingreso'
@@ -87,6 +88,7 @@ El archivo local debe permanecer ignorado por Git. Use nombres únicos por cuent
   DefaultContactFlowId = ''
   DevelopmentContactFlowId = ''
   DevelopmentPhoneNumbers = ''
+  DevelopmentSenderAssetIds = ''
 
   TemplateDslMode = 'allowlist'
   TemplateDslPhoneNumbers = '15555550123'

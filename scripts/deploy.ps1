@@ -130,6 +130,7 @@ try {
     Environment = [string]$Environment
     DeploymentRevision = [string]$deploymentRevision
     ConnectInstanceId = [string]$cfg.ConnectInstanceId
+    ChatConnectInstanceId = if ($cfg.ContainsKey('ChatConnectInstanceId')) { [string]$cfg.ChatConnectInstanceId } else { '' }
     DefaultContactFlowId = $defaultContactFlowId
     CreateDefaultContactFlow = $createManagedFlow.ToString().ToLowerInvariant()
     ManagedContactFlowName = [string](Get-ConfigValue 'ManagedContactFlowName' '00 Redes Sociales - Ingreso')
@@ -139,6 +140,7 @@ try {
     CreateConnectAttachmentsStorage = $createAttachmentsStorage.ToString().ToLowerInvariant()
     DevelopmentContactFlowId = if ($cfg.ContainsKey('DevelopmentContactFlowId')) { [string]$cfg.DevelopmentContactFlowId } else { '' }
     DevelopmentPhoneNumbers = if ($cfg.ContainsKey('DevelopmentPhoneNumbers')) { [string]$cfg.DevelopmentPhoneNumbers } else { '' }
+    DevelopmentSenderAssetIds = if ($cfg.ContainsKey('DevelopmentSenderAssetIds')) { [string]$cfg.DevelopmentSenderAssetIds } else { '' }
     TemplateDslMode = if ($cfg.ContainsKey('TemplateDslMode')) { [string]$cfg.TemplateDslMode } else { 'disabled' }
     TemplateDslPhoneNumbers = if ($cfg.ContainsKey('TemplateDslPhoneNumbers')) { [string]$cfg.TemplateDslPhoneNumbers } else { '' }
     DeveloperRoutingProfileIds = if ($cfg.ContainsKey('DeveloperRoutingProfileIds')) { [string]$cfg.DeveloperRoutingProfileIds } else { '' }

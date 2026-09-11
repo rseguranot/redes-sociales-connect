@@ -39,6 +39,11 @@ Parameters:
     Type: String
     AllowedPattern: '^[0-9a-fA-F-]{36}$'
     Description: ID de la instancia Amazon Connect donde se crearán los chats.
+  ChatConnectInstanceId:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[0-9a-fA-F-]{36}$'
+    Description: Instancia opcional usada sólo por la Lambda procesador para iniciar chats.
   DefaultContactFlowId:
     Type: String
     Default: ''
@@ -68,6 +73,11 @@ Parameters:
     Default: ''
     AllowedPattern: '^$|^[0-9+, -]+$'
     Description: Números de prueba separados por coma, exactamente como los entrega Meta (normalmente E.164 sin +).
+  DevelopmentSenderAssetIds:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[0-9, -]+$'
+    Description: IDs de números empresariales autorizados para el flow aislado de desarrollo.
   TemplateDslMode:
     Type: String
     Default: disabled
@@ -157,6 +167,7 @@ Parameters:
 
 Conditions:
   HasAlarmEmail: !Not [!Equals [!Ref AlarmEmail, '']]
+  UseChatConnectInstance: !Not [!Equals [!Ref ChatConnectInstanceId, '']]
   ProtectData: !Equals [!Ref EnableDeletionProtection, 'true']
   CreateContextModule: !Equals [!Ref CreateConnectContextModule, 'true']
   CreateManagedDefaultFlow: !Equals [!Ref CreateDefaultContactFlow, 'true']
@@ -581,13 +592,14 @@ Resources:
         Variables:
           WORKER_MODE: conversation
           STATE_TABLE: !Ref StateTable
-          CONNECT_INSTANCE_ID: !Ref ConnectInstanceId
+          CONNECT_INSTANCE_ID: !If [UseChatConnectInstance, !Ref ChatConnectInstanceId, !Ref ConnectInstanceId]
           DEFAULT_CONTACT_FLOW_ID: !If
             - CreateManagedDefaultFlow
             - !Select [1, !Split ['/contact-flow/', !GetAtt DefaultConnectContactFlow.ContactFlowArn]]
             - !Ref DefaultContactFlowId
           DEVELOPMENT_CONTACT_FLOW_ID: !Ref DevelopmentContactFlowId
           DEVELOPMENT_PHONE_NUMBERS: !Ref DevelopmentPhoneNumbers
+          DEVELOPMENT_SENDER_ASSET_IDS: !Ref DevelopmentSenderAssetIds
           TEMPLATE_DSL_MODE: !Ref TemplateDslMode
           TEMPLATE_DSL_PHONE_NUMBERS: !Ref TemplateDslPhoneNumbers
           WHATSAPP_SECRET_ARN: !Ref WhatsAppSecretArn
