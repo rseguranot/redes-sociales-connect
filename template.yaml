@@ -1010,13 +1010,25 @@ Resources:
       Content: !Sub |
         {
           "Version": "2019-10-30",
-          "StartAction": "SetWorkingQueue",
+          "StartAction": "EnableLogging",
           "Metadata": {
             "entryPointPosition": {"x": 40, "y": 40},
             "ActionMetadata": {},
             "Annotations": []
           },
           "Actions": [
+            {
+              "Identifier": "EnableLogging",
+              "Type": "UpdateFlowLoggingBehavior",
+              "Parameters": {"FlowLoggingBehavior": "Enabled"},
+              "Transitions": {"NextAction": "SetLanguage"}
+            },
+            {
+              "Identifier": "SetLanguage",
+              "Type": "UpdateContactData",
+              "Parameters": {"LanguageCode": "es-US"},
+              "Transitions": {"NextAction": "SetWorkingQueue", "Errors": [{"NextAction": "SetWorkingQueue", "ErrorType": "NoMatchingError"}]}
+            },
             {
               "Identifier": "SetWorkingQueue",
               "Type": "UpdateContactTargetQueue",

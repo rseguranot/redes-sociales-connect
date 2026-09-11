@@ -85,6 +85,8 @@ class ConnectArtifactsTests(unittest.TestCase):
             )
         )
         actions = self._assert_valid_graph(flow)
+        self.assertEqual(flow["StartAction"], "EnableLogging")
+        self.assertEqual(actions["SetLanguage"]["Parameters"]["LanguageCode"], "es-US")
         menu = actions["MenuBot"]
         routes = {
             item["Condition"]["Operands"][0]: item["NextAction"]
