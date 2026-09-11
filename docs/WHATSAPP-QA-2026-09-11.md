@@ -53,8 +53,11 @@ detallados con datos personales; se inspeccionaron solo contadores/indicadores
 del test y no se modificó esa función por afectar otros consumidores.
 
 Reclamaciones tiene herramientas Salesforce de búsqueda, consulta y creación.
-No se certifica creación de un caso ni consulta positiva de un pedido sin un
-cliente/pedido de prueba conocido y un destino CRM de pruebas confirmado.
+La consulta de solo lectura `SELECT IsSandbox FROM Organization LIMIT 1` devolvió
+`IsSandbox = false`: el destino Salesforce es producción, pese al nombre dev de
+la Lambda. No se ejecutó `/createClaim`. No se certifica creación de un caso ni
+consulta positiva de un pedido sin un sandbox y un cliente/pedido de prueba
+conocido. Hace falta ese entorno para completar la prueba de escritura.
 La transferencia protegida conserva dos mensajes: anuncio y aclaración de prueba.
 No están cubiertos aquí multimedia, CCP real, mensajes fuera de ventana, carga,
 duplicados de webhook ni todas las posibles formulaciones de lenguaje natural.
