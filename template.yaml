@@ -68,6 +68,35 @@ Parameters:
     Default: ''
     AllowedPattern: '^$|^[0-9a-fA-F-]{36}$'
     Description: ID opcional de un flujo aislado de Connect para números de prueba.
+  CreateDevelopmentAiContactFlow:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Crea un flujo de pruebas WhatsApp con menú Lex, Amazon Q y transferencia controlada a agentes.
+  DevelopmentAiContactFlowName:
+    Type: String
+    Default: '00 DEV WhatsApp AI - Pruebas'
+    AllowedPattern: '.*\S.*'
+  DevelopmentMenuBotAliasArn:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^arn:aws[a-zA-Z-]*:lex:[a-z0-9-]+:[0-9]{12}:bot-alias/[A-Z0-9]+/[A-Z0-9]+$'
+  DevelopmentAiBotAliasArn:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^arn:aws[a-zA-Z-]*:lex:[a-z0-9-]+:[0-9]{12}:bot-alias/[A-Z0-9]+/[A-Z0-9]+$'
+  DevelopmentAiAssistantArn:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^arn:aws[a-zA-Z-]*:wisdom:[a-z0-9-]+:[0-9]{12}:assistant/[A-Za-z0-9-]+$'
+  DevelopmentAiAgentArn:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^arn:aws[a-zA-Z-]*:wisdom:[a-z0-9-]+:[0-9]{12}:ai-agent/[A-Za-z0-9-]+/[A-Za-z0-9-]+:[0-9]+$'
+  DevelopmentHoursOfOperationArn:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^arn:aws[a-zA-Z-]*:connect:[a-z0-9-]+:[0-9]{12}:instance/[0-9a-fA-F-]{36}/operating-hours/[0-9a-fA-F-]{36}$'
   DevelopmentPhoneNumbers:
     Type: String
     Default: ''
@@ -181,6 +210,7 @@ Conditions:
   ProtectData: !Equals [!Ref EnableDeletionProtection, 'true']
   CreateContextModule: !Equals [!Ref CreateConnectContextModule, 'true']
   CreateManagedDefaultFlow: !Equals [!Ref CreateDefaultContactFlow, 'true']
+  CreateManagedDevelopmentAiFlow: !Equals [!Ref CreateDevelopmentAiContactFlow, 'true']
   CreateAttachmentsStorage: !Equals [!Ref CreateConnectAttachmentsStorage, 'true']
 
 Rules:
@@ -198,6 +228,18 @@ Rules:
           - !Equals [!Ref CreateDefaultContactFlow, 'false']
           - !Equals [!Ref CreateConnectContextModule, 'true']
         AssertDescription: El flow administrado requiere CreateConnectContextModule=true.
+  DevelopmentAiFlowSelection:
+    RuleCondition: !Equals [!Ref CreateDevelopmentAiContactFlow, 'true']
+    Assertions:
+      - Assert: !Not [!Equals [!Ref ConnectQueueId, '']]
+        AssertDescription: ConnectQueueId es obligatorio para crear el flujo WhatsApp AI de pruebas.
+      - Assert: !And
+          - !Not [!Equals [!Ref DevelopmentMenuBotAliasArn, '']]
+          - !Not [!Equals [!Ref DevelopmentAiBotAliasArn, '']]
+          - !Not [!Equals [!Ref DevelopmentAiAssistantArn, '']]
+          - !Not [!Equals [!Ref DevelopmentAiAgentArn, '']]
+          - !Not [!Equals [!Ref DevelopmentHoursOfOperationArn, '']]
+        AssertDescription: El flujo WhatsApp AI requiere los ARNs locales de Lex, Amazon Q y horario.
 
 Globals:
   Function:
@@ -607,7 +649,10 @@ Resources:
             - CreateManagedDefaultFlow
             - !Select [1, !Split ['/contact-flow/', !GetAtt DefaultConnectContactFlow.ContactFlowArn]]
             - !Ref DefaultContactFlowId
-          DEVELOPMENT_CONTACT_FLOW_ID: !Ref DevelopmentContactFlowId
+          DEVELOPMENT_CONTACT_FLOW_ID: !If
+            - CreateManagedDevelopmentAiFlow
+            - !Select [1, !Split ['/contact-flow/', !GetAtt DevelopmentAiContactFlow.ContactFlowArn]]
+            - !Ref DevelopmentContactFlowId
           DEVELOPMENT_PHONE_NUMBERS: !Ref DevelopmentPhoneNumbers
           DEVELOPMENT_SENDER_ASSET_IDS: !Ref DevelopmentSenderAssetIds
           DEVELOPMENT_SOCIAL_USER_IDS: !Ref DevelopmentSocialUserIds
@@ -940,6 +985,190 @@ Resources:
             },
             {
               "Identifier": "EndContact",
+              "Type": "DisconnectParticipant",
+              "Parameters": {},
+              "Transitions": {}
+            }
+          ]
+        }
+      Tags:
+        - {Key: Application, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  DevelopmentAiContactFlow:
+    Type: AWS::Connect::ContactFlow
+    Condition: CreateManagedDevelopmentAiFlow
+    DeletionPolicy: RetainExceptOnCreate
+    UpdateReplacePolicy: Retain
+    Properties:
+      InstanceArn: !Sub 'arn:${AWS::Partition}:connect:${AWS::Region}:${AWS::AccountId}:instance/${ConnectInstanceId}'
+      Name: !Ref DevelopmentAiContactFlowName
+      Description: Flujo WhatsApp AI aislado por allowlist; usa Lex y Amazon Q y deriva solicitudes humanas según horario.
+      State: ACTIVE
+      Type: CONTACT_FLOW
+      Content: !Sub |
+        {
+          "Version": "2019-10-30",
+          "StartAction": "SetWorkingQueue",
+          "Metadata": {
+            "entryPointPosition": {"x": 40, "y": 40},
+            "ActionMetadata": {},
+            "Annotations": []
+          },
+          "Actions": [
+            {
+              "Identifier": "SetWorkingQueue",
+              "Type": "UpdateContactTargetQueue",
+              "Parameters": {"QueueId": "arn:${AWS::Partition}:connect:${AWS::Region}:${AWS::AccountId}:instance/${ConnectInstanceId}/queue/${ConnectQueueId}"},
+              "Transitions": {"NextAction": "Greeting", "Errors": [{"NextAction": "Greeting", "ErrorType": "NoMatchingError"}]}
+            },
+            {
+              "Identifier": "Greeting",
+              "Type": "MessageParticipant",
+              "Parameters": {"Text": "Buenos días, gracias por comunicarse con Plaza Lama, la Súper Tienda. Seleccione una opción del menú para continuar."},
+              "Transitions": {"NextAction": "MenuBot", "Errors": [{"NextAction": "MenuBot", "ErrorType": "NoMatchingError"}]}
+            },
+            {
+              "Identifier": "MenuBot",
+              "Type": "ConnectParticipantWithLexBot",
+              "Parameters": {"LexInitializationData": {"InitialMessage": "menu"}, "LexV2Bot": {"AliasArn": "${DevelopmentMenuBotAliasArn}"}},
+              "Transitions": {
+                "NextAction": "CreateAiSession",
+                "Conditions": [
+                  {"NextAction": "CreateAiSession", "Condition": {"Operator": "Equals", "Operands": ["Queja"]}},
+                  {"NextAction": "CreateAiSession", "Condition": {"Operator": "Equals", "Operands": ["General"]}},
+                  {"NextAction": "CreateAiSession", "Condition": {"Operator": "Equals", "Operands": ["Estatus"]}},
+                  {"NextAction": "CheckHours", "Condition": {"Operator": "Equals", "Operands": ["agente"]}},
+                  {"NextAction": "CreateAiSession", "Condition": {"Operator": "Equals", "Operands": ["reclamaciones"]}}
+                ],
+                "Errors": [
+                  {"NextAction": "CreateAiSession", "ErrorType": "NoMatchingCondition"},
+                  {"NextAction": "CompleteMessage", "ErrorType": "NoMatchingError"}
+                ]
+              }
+            },
+            {
+              "Identifier": "CreateAiSession",
+              "Type": "CreateWisdomSession",
+              "Parameters": {"WisdomAssistantArn": "${DevelopmentAiAssistantArn}"},
+              "Transitions": {"NextAction": "BindAiSession", "Errors": [{"NextAction": "CompleteMessage", "ErrorType": "NoMatchingError"}]}
+            },
+            {
+              "Identifier": "BindAiSession",
+              "Type": "UpdateContactData",
+              "Parameters": {"WisdomSessionArn": "$.Wisdom.SessionArn"},
+              "Transitions": {"NextAction": "AiBot", "Errors": [{"NextAction": "CompleteMessage", "ErrorType": "NoMatchingError"}]}
+            },
+            {
+              "Identifier": "AiBot",
+              "Type": "ConnectParticipantWithLexBot",
+              "Parameters": {
+                "LexInitializationData": {"InitialMessage": "$.Lex.IntentName"},
+                "LexV2Bot": {"AliasArn": "${DevelopmentAiBotAliasArn}"},
+                "LexSessionAttributes": {"x-amz-lex:q-in-connect:ai-agent-arn": "${DevelopmentAiAgentArn}"}
+              },
+              "Transitions": {
+                "NextAction": "CaptureAiOutcome",
+                "Conditions": [
+                  {"NextAction": "CaptureAiOutcome", "Condition": {"Operator": "Equals", "Operands": ["AmazonQinConnect"]}},
+                  {"NextAction": "CaptureAiOutcome", "Condition": {"Operator": "Equals", "Operands": ["FallbackIntent"]}},
+                  {"NextAction": "CaptureAiOutcome", "Condition": {"Operator": "Equals", "Operands": ["consulta"]}},
+                  {"NextAction": "CaptureAiOutcome", "Condition": {"Operator": "Equals", "Operands": ["Quejas"]}},
+                  {"NextAction": "CaptureAiOutcome", "Condition": {"Operator": "Equals", "Operands": ["reclamaciones"]}},
+                  {"NextAction": "CaptureAiOutcome", "Condition": {"Operator": "Equals", "Operands": ["Genera"]}},
+                  {"NextAction": "CaptureAiOutcome", "Condition": {"Operator": "Equals", "Operands": ["Cerrar"]}}
+                ],
+                "Errors": [
+                  {"NextAction": "CaptureAiOutcome", "ErrorType": "NoMatchingCondition"},
+                  {"NextAction": "CompleteMessage", "ErrorType": "NoMatchingError"}
+                ]
+              }
+            },
+            {
+              "Identifier": "CaptureAiOutcome",
+              "Type": "UpdateContactAttributes",
+              "Parameters": {
+                "Attributes": {
+                  "flujo": "$.Lex.SessionAttributes.origen_actual",
+                  "representante": "$.Lex.SessionAttributes.agente",
+                  "partial_data_captured": "true",
+                  "autogestion_capture_level": "PARTIAL"
+                },
+                "TargetContact": "Current"
+              },
+              "Transitions": {"NextAction": "CheckHandoff", "Errors": [{"NextAction": "CheckHandoff", "ErrorType": "NoMatchingError"}]}
+            },
+            {
+              "Identifier": "CheckHandoff",
+              "Type": "Compare",
+              "Parameters": {"ComparisonValue": "$.Attributes.representante"},
+              "Transitions": {
+                "NextAction": "CompleteMessage",
+                "Conditions": [
+                  {"NextAction": "CheckHours", "Condition": {"Operator": "Equals", "Operands": ["true"]}},
+                  {"NextAction": "CompleteMessage", "Condition": {"Operator": "Equals", "Operands": ["false"]}}
+                ],
+                "Errors": [{"NextAction": "CompleteMessage", "ErrorType": "NoMatchingCondition"}]
+              }
+            },
+            {
+              "Identifier": "CheckHours",
+              "Type": "CheckHoursOfOperation",
+              "Parameters": {"HoursOfOperationId": "${DevelopmentHoursOfOperationArn}"},
+              "Transitions": {
+                "NextAction": "ClosedMessage",
+                "Conditions": [
+                  {"NextAction": "TransferMessage", "Condition": {"Operator": "Equals", "Operands": ["True"]}},
+                  {"NextAction": "ClosedMessage", "Condition": {"Operator": "Equals", "Operands": ["False"]}}
+                ],
+                "Errors": [{"NextAction": "ClosedMessage", "ErrorType": "NoMatchingError"}]
+              }
+            },
+            {
+              "Identifier": "TransferMessage",
+              "Type": "MessageParticipant",
+              "Parameters": {"Text": "Le estamos comunicando con un representante para que pueda ayudarle."},
+              "Transitions": {"NextAction": "MarkHandoff", "Errors": [{"NextAction": "MarkHandoff", "ErrorType": "NoMatchingError"}]}
+            },
+            {
+              "Identifier": "MarkHandoff",
+              "Type": "UpdateContactAttributes",
+              "Parameters": {"Attributes": {"bot_branch_outcome": "ASSISTED_CANDIDATE", "bot_handoff_requested": "true"}, "TargetContact": "Current"},
+              "Transitions": {"NextAction": "TransferToQueue", "Errors": [{"NextAction": "TransferToQueue", "ErrorType": "NoMatchingError"}]}
+            },
+            {
+              "Identifier": "TransferToQueue",
+              "Type": "TransferContactToQueue",
+              "Parameters": {},
+              "Transitions": {
+                "NextAction": "Disconnect",
+                "Errors": [
+                  {"NextAction": "Disconnect", "ErrorType": "QueueAtCapacity"},
+                  {"NextAction": "Disconnect", "ErrorType": "NoMatchingError"}
+                ]
+              }
+            },
+            {
+              "Identifier": "ClosedMessage",
+              "Type": "MessageParticipant",
+              "Parameters": {"Text": "Gracias por contactar a Plaza Lama. En este momento nuestro equipo de atención al cliente ha finalizado su jornada. Por favor, déjenos su nombre y el motivo de su consulta; un representante le contactará al iniciar la próxima jornada."},
+              "Transitions": {"NextAction": "Disconnect", "Errors": [{"NextAction": "Disconnect", "ErrorType": "NoMatchingError"}]}
+            },
+            {
+              "Identifier": "CompleteMessage",
+              "Type": "MessageParticipant",
+              "Parameters": {"Text": "Ha sido un placer ayudarle."},
+              "Transitions": {"NextAction": "MarkComplete", "Errors": [{"NextAction": "MarkComplete", "ErrorType": "NoMatchingError"}]}
+            },
+            {
+              "Identifier": "MarkComplete",
+              "Type": "UpdateContactAttributes",
+              "Parameters": {"Attributes": {"bot_branch_outcome": "COMPLETED", "bot_outcome": "COMPLETED"}, "TargetContact": "Current"},
+              "Transitions": {"NextAction": "Disconnect", "Errors": [{"NextAction": "Disconnect", "ErrorType": "NoMatchingError"}]}
+            },
+            {
+              "Identifier": "Disconnect",
               "Type": "DisconnectParticipant",
               "Parameters": {},
               "Transitions": {}
@@ -1404,6 +1633,14 @@ Outputs:
       - CreateManagedDefaultFlow
       - !Select [1, !Split ['/contact-flow/', !GetAtt DefaultConnectContactFlow.ContactFlowArn]]
       - !Ref DefaultContactFlowId
+  ManagedDevelopmentAiContactFlowArn:
+    Condition: CreateManagedDevelopmentAiFlow
+    Value: !GetAtt DevelopmentAiContactFlow.ContactFlowArn
+  EffectiveDevelopmentContactFlowId:
+    Value: !If
+      - CreateManagedDevelopmentAiFlow
+      - !Select [1, !Split ['/contact-flow/', !GetAtt DevelopmentAiContactFlow.ContactFlowArn]]
+      - !Ref DevelopmentContactFlowId
   PlatformResourceGroupArn:
     Value: !GetAtt PlatformResourceGroup.Arn
   TaggedPlatformResourceGroupArn:

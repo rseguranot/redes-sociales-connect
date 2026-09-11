@@ -45,6 +45,7 @@ function ConvertTo-ConfigBoolean($Value, [string] $Name) {
 }
 
 $createManagedFlow = ConvertTo-ConfigBoolean (Get-ConfigValue 'CreateDefaultContactFlow' $true) 'CreateDefaultContactFlow'
+$createDevelopmentAiFlow = ConvertTo-ConfigBoolean (Get-ConfigValue 'CreateDevelopmentAiContactFlow' $false) 'CreateDevelopmentAiContactFlow'
 $createContextModule = ConvertTo-ConfigBoolean (Get-ConfigValue 'CreateConnectContextModule' $true) 'CreateConnectContextModule'
 $createAttachmentsStorage = ConvertTo-ConfigBoolean (Get-ConfigValue 'CreateConnectAttachmentsStorage' $false) 'CreateConnectAttachmentsStorage'
 $defaultContactFlowId = [string](Get-ConfigValue 'DefaultContactFlowId' '')
@@ -60,6 +61,12 @@ if ($createManagedFlow -and [string]::IsNullOrWhiteSpace($connectQueueId)) {
 }
 if ($createManagedFlow -and -not $createContextModule) {
   throw "El flow administrado requiere CreateConnectContextModule=true."
+}
+if ($createDevelopmentAiFlow) {
+  @(
+    'DevelopmentMenuBotAliasArn', 'DevelopmentAiBotAliasArn',
+    'DevelopmentAiAssistantArn', 'DevelopmentAiAgentArn', 'DevelopmentHoursOfOperationArn'
+  ) | ForEach-Object { Require-Config $_ }
 }
 
 $account = [string](aws sts get-caller-identity --profile $AwsProfile --query Account --output text)
@@ -139,6 +146,13 @@ try {
     ConnectContextModuleName = [string](Get-ConfigValue 'ConnectContextModuleName' '00 MOD Social - Inicializar contexto')
     CreateConnectAttachmentsStorage = $createAttachmentsStorage.ToString().ToLowerInvariant()
     DevelopmentContactFlowId = if ($cfg.ContainsKey('DevelopmentContactFlowId')) { [string]$cfg.DevelopmentContactFlowId } else { '' }
+    CreateDevelopmentAiContactFlow = $createDevelopmentAiFlow.ToString().ToLowerInvariant()
+    DevelopmentAiContactFlowName = [string](Get-ConfigValue 'DevelopmentAiContactFlowName' '00 DEV WhatsApp AI - Pruebas')
+    DevelopmentMenuBotAliasArn = if ($cfg.ContainsKey('DevelopmentMenuBotAliasArn')) { [string]$cfg.DevelopmentMenuBotAliasArn } else { '' }
+    DevelopmentAiBotAliasArn = if ($cfg.ContainsKey('DevelopmentAiBotAliasArn')) { [string]$cfg.DevelopmentAiBotAliasArn } else { '' }
+    DevelopmentAiAssistantArn = if ($cfg.ContainsKey('DevelopmentAiAssistantArn')) { [string]$cfg.DevelopmentAiAssistantArn } else { '' }
+    DevelopmentAiAgentArn = if ($cfg.ContainsKey('DevelopmentAiAgentArn')) { [string]$cfg.DevelopmentAiAgentArn } else { '' }
+    DevelopmentHoursOfOperationArn = if ($cfg.ContainsKey('DevelopmentHoursOfOperationArn')) { [string]$cfg.DevelopmentHoursOfOperationArn } else { '' }
     DevelopmentPhoneNumbers = if ($cfg.ContainsKey('DevelopmentPhoneNumbers')) { [string]$cfg.DevelopmentPhoneNumbers } else { '' }
     DevelopmentSenderAssetIds = if ($cfg.ContainsKey('DevelopmentSenderAssetIds')) { [string]$cfg.DevelopmentSenderAssetIds } else { '' }
     DevelopmentSocialUserIds = if ($cfg.ContainsKey('DevelopmentSocialUserIds')) { [string]$cfg.DevelopmentSocialUserIds } else { '' }

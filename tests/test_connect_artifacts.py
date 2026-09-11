@@ -70,6 +70,31 @@ class ConnectArtifactsTests(unittest.TestCase):
         self.assertEqual(actions["TransferToAgentQueue"]["Type"], "TransferContactToQueue")
         self.assertEqual(actions["EndContact"]["Type"], "DisconnectParticipant")
 
+    def test_development_ai_flow_routes_agent_intent_before_q_bot(self):
+        template = (ROOT / "template.yaml").read_text(encoding="utf-8")
+        section = template.split("  DevelopmentAiContactFlow:", 1)[1].split(
+            "  AdminAppBucket:", 1
+        )[0]
+        template_content = section.split("      Content: !Sub |", 1)[1].split(
+            "      Tags:", 1
+        )[0]
+        flow = json.loads(
+            "\n".join(
+                line[8:] if line.startswith("        ") else line
+                for line in template_content.strip("\n").splitlines()
+            )
+        )
+        actions = self._assert_valid_graph(flow)
+        menu = actions["MenuBot"]
+        routes = {
+            item["Condition"]["Operands"][0]: item["NextAction"]
+            for item in menu["Transitions"]["Conditions"]
+        }
+        self.assertEqual(routes["agente"], "CheckHours")
+        self.assertEqual(routes["General"], "CreateAiSession")
+        self.assertEqual(actions["TransferMessage"]["Parameters"].get("SSML"), None)
+        self.assertIn("Text", actions["TransferMessage"]["Parameters"])
+
 
 if __name__ == "__main__":
     unittest.main()

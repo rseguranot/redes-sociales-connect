@@ -28,6 +28,15 @@
 
   # Enrutamiento controlado de desarrollo. Nunca publique números reales en Git.
   DevelopmentContactFlowId = ''
+  # Opcional: CloudFormation puede crear un flujo WhatsApp AI separado. Los ARN
+  # pertenecen a recursos existentes de Lex, Amazon Q y horario de Connect.
+  CreateDevelopmentAiContactFlow = $false
+  DevelopmentAiContactFlowName = '00 DEV WhatsApp AI - Pruebas'
+  DevelopmentMenuBotAliasArn = ''
+  DevelopmentAiBotAliasArn = ''
+  DevelopmentAiAssistantArn = ''
+  DevelopmentAiAgentArn = ''
+  DevelopmentHoursOfOperationArn = ''
   DevelopmentPhoneNumbers = ''
   DevelopmentSenderAssetIds = ''
   DevelopmentSocialUserIds = ''
