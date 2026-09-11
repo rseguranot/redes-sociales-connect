@@ -350,6 +350,13 @@ class ParserTests(unittest.TestCase):
         text, route = processor._content({"type": "interactive", "interactive": {"button_reply": {"id": "cotizar", "title": "Cotizar"}}})
         self.assertEqual((text, route), ("Cotizar", "cotizar"))
 
+    def test_agent_list_reply_uses_handoff_phrase(self):
+        text, route = processor._content({
+            "type": "interactive",
+            "interactive": {"list_reply": {"id": "agente", "title": "Hablar con un agente"}},
+        })
+        self.assertEqual((text, route), ("Quiero hablar con un representante", "agente"))
+
     def test_canonical_envelope_exposes_channel_and_sender_asset(self):
         change = {
             "_social_business_id": "business-account-1",

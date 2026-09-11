@@ -540,7 +540,10 @@ def _content(message: dict[str, Any]) -> tuple[str, str | None]:
             return "Formulario de WhatsApp recibido" + ("\n" + "\n".join(rows) if rows else ""), None
         value = message.get("interactive", {})
         reply = value.get("button_reply") or value.get("list_reply") or {}
-        return reply.get("title") or reply.get("id") or "[Respuesta interactiva]", reply.get("id")
+        reply_id = str(reply.get("id") or "")
+        if reply_id.strip().lower() in {"agente", "agent", "representante"}:
+            return "Quiero hablar con un representante", reply_id
+        return reply.get("title") or reply_id or "[Respuesta interactiva]", reply_id or None
     if kind == "button":
         return message.get("button", {}).get("text") or "[Botón]", message.get("button", {}).get("payload")
     if kind == "location":
