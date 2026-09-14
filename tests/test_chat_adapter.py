@@ -17,6 +17,38 @@ def test_short_yes_keeps_branch_and_pending_question():
     assert event["inputTranscript"] == "sí"
 
 
+def test_explicit_close_overrides_catalog_receipt_and_handoff_state():
+    for text in ['finalizar','Finalizar.','quiero finalizar','cerrar el chat',
+                 'Por favor, terminaR la conversación','finalizar, gracias']:
+        event={'inputTranscript':text,'sessionState':{'sessionAttributes':{
+            'chat_semantic_product':'televisor','chat_catalog_options':'[]',
+            'agente':'true','chat_receipt_confirm_pending':'true'},
+            'intent':{'name':'AmazonQinConnect','slots':{}}}}
+        with patch.object(adapter,'semantic_trial',return_value=True), patch.object(adapter,'persist_context',side_effect=lambda r,e:r), patch.object(adapter,'semantic_product') as model, patch.object(adapter,'receipt_context') as receipt:
+            result=adapter.lambda_handler(event,None)
+        assert result['sessionState']['dialogAction']=={'type':'Close'}
+        assert result['sessionState']['intent']['name']=='Cerrar'
+        assert result['sessionState']['intent']['state']=='Fulfilled'
+        attrs=result['sessionState']['sessionAttributes']
+        assert attrs['agente']=='false' and attrs['_closed']=='true'
+        assert 'chat_catalog_options' not in attrs
+        assert '[plantilla]' not in result['messages'][0]['content']
+        model.assert_not_called(); receipt.assert_not_called()
+
+
+def test_close_does_not_match_negation_purchase_or_incident_description():
+    for text in ['no quiero finalizar','finalizar mi compra','quiero cerrar un caso',
+                 'al finalizar la compra falló','gracias','no cierres el chat',
+                 'quiero finalizar y consultar un pedido']:
+        assert adapter.explicit_chat_close({'inputTranscript':text}) is None
+
+
+def test_nontrial_does_not_enter_new_close_handler():
+    with patch.object(adapter,'semantic_trial',return_value=False), patch.object(adapter,'explicit_chat_close') as close, patch.object(adapter,'prepare',return_value={}), patch.object(adapter,'receipt_context',return_value={}), patch.object(adapter,'persist_context',return_value={}):
+        adapter.lambda_handler({'inputTranscript':'finalizar'},None)
+    close.assert_not_called()
+
+
 def test_yes_without_pending_question_is_not_reinterpreted():
     event = {"inputTranscript": "sí", "sessionState": {"sessionAttributes": {"branch_last_code": "PL_TEST"}}}
     assert adapter.prepare(event)["inputTranscript"] == "sí"

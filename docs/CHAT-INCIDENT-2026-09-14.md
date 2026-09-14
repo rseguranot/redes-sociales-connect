@@ -114,3 +114,19 @@ fixed. Fresh voice-message E2E, transient typing UI, range constraints (such as
 greater-than screen sizes), and exhaustive business flows remain additional QA.
 No TTS response, voice-channel migration, or Agentic CX Designer migration was
 enabled by this trial.
+
+## Explicit close regression (follow-up)
+
+An explicit `finalizar` was being interpreted using the retained product context.
+The adapter now handles unambiguous session-close commands before receipt or
+semantic processing, only after validating the existing trial identity. It emits
+Lex `Close` with fulfilled intent `Cerrar`, clears product state and disables
+handoff. Negations, purchase completion, and case closure are not session-close
+commands. Nontrial identities retain their previous handling.
+
+The code-only release uses `scripts/deploy_chat_adapter_patch.py`: retained rollback
+version, unchanged environment/IAM/business functions, cfn-lint, and reviewed change
+set with unchanged dependent physical identifiers. Stack `UPDATE_COMPLETE`;
+110 unit tests plus 9 subtests passed. Real WhatsApp `finalizar` produced one
+farewell without a menu; Connect `DescribeContact` confirmed a disconnect timestamp
+and no connected agent. The tester session was left closed for the user's next test.

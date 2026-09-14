@@ -288,6 +288,29 @@ def chat_reply(event, text):
             "messages": [{"contentType": "PlainText", "content": text}]}
 
 
+def explicit_chat_close(event):
+    """Treat an unambiguous session-close request as control, not catalog data."""
+    text = normalized(event.get('inputTranscript') or event.get('rawInputTranscript') or '')
+    command = (r'(?:(?:por favor|gracias)[,\s]+)?'
+               r'(?:(?:quiero|deseo|necesito|puedes)\s+)?'
+               r'(?:finalizar|cerrar|terminar)'
+               r'(?:\s+(?:(?:el|la|esta|este|mi)\s+)?(?:chat|conversacion|sesion|atencion))?'
+               r'(?:[,\s]+(?:por favor|gracias))?')
+    if not re.fullmatch(command, text):
+        return None
+    state = copy.deepcopy(event.get('sessionState', {}))
+    attrs = state.setdefault('sessionAttributes', {})
+    reset_dialogue(attrs)
+    message = 'Gracias por comunicarse con Plaza Lama. Hemos finalizado esta conversación.'
+    attrs.update({'agente':'false', 'representante':'false', 'wants_close':'true',
+                  '_closed':'true', 'tipoestadofinal':'cierre_cliente', 'routing_mode':'closed',
+                  'bedrock_supervisor_active':'false', 'origen_actual':'cierre',
+                  'last_agent_response':message, 'bedrock_last_response':message})
+    state['intent'] = {'name':'Cerrar', 'state':'Fulfilled', 'slots':{}}
+    state['dialogAction'] = {'type':'Close'}
+    return {'sessionState':state, 'messages':[{'contentType':'PlainText','content':message}]}
+
+
 def product_context(event):
     """Own the bounded TV price dialogue; leave business/agent intents to the hook.
 
@@ -639,11 +662,16 @@ def adapt(response, event):
 
 
 def lambda_handler(event, context):
+    # Only trusted trial identities use this new close behavior.
+    trial = semantic_trial(event)
+    if trial:
+        close = explicit_chat_close(event)
+        if close is not None:
+            return persist_context(close, event)
     prepared = prepare(event)
     receipt_reply = receipt_context(prepared)
     if receipt_reply is not None:
         return persist_context(receipt_reply, event)
-    trial = semantic_trial(event)
     if trial:
         reply = semantic_product(prepared)
         if reply is not None:
