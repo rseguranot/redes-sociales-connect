@@ -1382,8 +1382,8 @@ def _meta_event(body: dict[str, Any]) -> None:
                         "campaign_id": flow_campaign_id or str((route or {}).get("campaign_id") or ""),
                         "button_id": str(reply_id or ""),
                         "target_flow_id": str((route or {}).get("contact_flow_id") or ""),
-                        "social_input_source": str(canonical["message"].get("input_source") or ""),
-                        "social_reply_preference": str(canonical["message"].get("reply_preference") or ""),
+                        "social_input_source": str(canonical["message"].get("input_source") or "text"),
+                        "social_reply_preference": str(canonical["message"].get("reply_preference") or "text"),
                         "social_audio_url": str((canonical["message"].get("agent_attachment") or {}).get("url") or ""),
                         "social_audio_filename": str((canonical["message"].get("agent_attachment") or {}).get("filename") or ""),
                     }
@@ -1396,9 +1396,13 @@ def _meta_event(body: dict[str, Any]) -> None:
                     )
                     if not is_new:
                         _send_connect(session, text, chat_content_type)
-                    delivery_attributes = {key: attributes[key] for key in (
-                        "social_input_source", "social_reply_preference", "social_audio_url", "social_audio_filename"
-                    ) if attributes.get(key)}
+                    explicit_delivery = {
+                        "social_input_source": canonical["message"].get("input_source"),
+                        "social_reply_preference": canonical["message"].get("reply_preference"),
+                        "social_audio_url": (canonical["message"].get("agent_attachment") or {}).get("url"),
+                        "social_audio_filename": (canonical["message"].get("agent_attachment") or {}).get("filename"),
+                    }
+                    delivery_attributes = {key: value for key, value in explicit_delivery.items() if value}
                     if delivery_attributes and not is_new:
                         _update_contact_attributes(session, delivery_attributes)
                     attachment = canonical["message"].get("agent_attachment") or {}
