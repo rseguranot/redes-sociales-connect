@@ -17,7 +17,7 @@ def template(cf, stack):
     return json.loads(value) if isinstance(value, str) else value
 
 
-def deploy(cf, s3, bucket, stack, document, allowed, updates=None):
+def deploy(cf, s3, bucket, stack, document, allowed, updates=None, stable_dependencies=None):
     encoded = json.dumps(document, ensure_ascii=True).encode('utf-8')
     digest = hashlib.sha256(encoded).hexdigest()
     key = 'chat-production/identity-trial/' + digest + '.json'
@@ -45,14 +45,29 @@ def deploy(cf, s3, bucket, stack, document, allowed, updates=None):
     changes = [entry['ResourceChange'] for entry in result.get('Changes', [])]
     summary = [{k:entry.get(k) for k in ('LogicalResourceId','Action','Replacement')} for entry in changes]
     print(json.dumps({'stack':stack, 'reviewed_changes':summary}), flush=True)
+    print(json.dumps({'dependency_review':[{ 'resource':entry['LogicalResourceId'], 'details':entry.get('Details',[])} for entry in changes if entry.get('Replacement') in ('Conditional','True')]}),flush=True)
+    original = template(cf,stack)
+    def safe_dependency(entry):
+        logical = entry['LogicalResourceId']
+        return (logical in (stable_dependencies or set())
+                and entry.get('Replacement') == 'Conditional'
+                and document['Resources'][logical] == original['Resources'][logical]
+                and bool(entry.get('Details'))
+                and all(d.get('Evaluation') == 'Dynamic'
+                        and d.get('ChangeSource') == 'ResourceAttribute'
+                        and d.get('CausingEntity') == 'ChatAlias.Arn'
+                        for d in entry['Details'])
+                and document['Resources']['ChatAlias'] == original['Resources']['ChatAlias'])
     if any(entry['LogicalResourceId'] not in allowed or entry['Action'] == 'Remove'
-           or (entry.get('Replacement') or 'False') != 'False' for entry in changes):
+           or ((entry.get('Replacement') or 'False') != 'False' and not safe_dependency(entry)) for entry in changes):
         cf.delete_change_set(StackName=stack, ChangeSetName=name)
         raise RuntimeError('Unrelated change or replacement rejected')
+    previous_ids = {logical:cf.describe_stack_resource(StackName=stack,LogicalResourceId=logical)['StackResourceDetail']['PhysicalResourceId'] for logical in (stable_dependencies or set())}
     cf.execute_change_set(StackName=stack, ChangeSetName=name)
     while True:
         status = cf.describe_stacks(StackName=stack)['Stacks'][0]['StackStatus']
         if status == 'UPDATE_COMPLETE':
+            assert all(cf.describe_stack_resource(StackName=stack,LogicalResourceId=logical)['StackResourceDetail']['PhysicalResourceId'] == physical for logical,physical in previous_ids.items()), 'Dependent resource identity changed'
             print(stack + ' UPDATE_COMPLETE', flush=True)
             return
         if status not in {'UPDATE_IN_PROGRESS','UPDATE_COMPLETE_CLEANUP_IN_PROGRESS'}:
@@ -66,6 +81,19 @@ def snapshot(document, logical, suffix):
         'UpdateReplacePolicy':'Retain', 'Properties':{'FunctionName':{'Ref':logical},
         'Description':'Immutable rollback snapshot for identity-scoped chat release'}}
     return name
+
+
+def pin_adapter_arn(value, arn, logical='ChatAdapter'):
+    """Keep Lex's unchanged Lambda ARN stable during a code-only update."""
+    if value == {'Fn::GetAtt':[logical,'Arn']}:
+        return arn
+    if isinstance(value,dict):
+        return {key:pin_adapter_arn(item,arn,logical) for key,item in value.items()}
+    if isinstance(value,list):
+        return [pin_adapter_arn(item,arn,logical) for item in value]
+    if isinstance(value,str):
+        return value.replace('${'+logical+'.Arn}',arn)
+    return value
 
 
 def package(s3, bucket, files):
@@ -129,10 +157,13 @@ def main():
     deploy(cf,s3,bucket,args.main_stack,main_doc,{'ProcessorFunction','MediaFunction','ProcessorFunctionRole'}|candidate_names,
            {'VoiceSingleTurnPhoneNumbers':args.phones,'VoiceSingleTurnUserIds':args.user_ids,'VoiceBaselineModule':'production_baseline'})
     chat_doc = template(cf,args.chat_stack)
+    adapter_name = cf.describe_stack_resource(StackName=args.chat_stack,LogicalResourceId='ChatAdapter')['StackResourceDetail']['PhysicalResourceId']
+    adapter_arn = lamb.get_function_configuration(FunctionName=adapter_name)['FunctionArn']
     code = package(s3,bucket,{'app.py':(root/'src/chat_adapter/app.py').read_bytes()})
     chat_doc['Resources']['ChatAdapter']['Properties']['CodeUri'] = f"s3://{bucket}/{code['S3Key']}"
     name = snapshot(chat_doc,'ChatAdapter','IncidentFix20260914')
-    deploy(cf,s3,bucket,args.chat_stack,chat_doc,{'ChatAdapter',name})
+    dependencies = {'AliasPolicy','ConnectChatAssociation','LexPermission'}
+    deploy(cf,s3,bucket,args.chat_stack,chat_doc,{'ChatAdapter',name,'ChatAlias','ProductionContactFlow'}|dependencies,stable_dependencies=dependencies)
 
 
 if __name__ == '__main__':
