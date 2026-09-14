@@ -185,6 +185,8 @@ def _normalized_phone(value: str) -> str:
 
 def _voice_single_turn_enabled(identity: dict[str, str]) -> bool:
     """Exact provider identities; never infer a phone from a name or BSUID."""
+    if os.environ.get('VOICE_ALL_PRODUCTION_USERS') == 'true':
+        return bool(identity.get('id') or identity.get('phone'))
     phone = _normalized_phone(identity.get("phone", ""))
     allowed = {
         _normalized_phone(value)
@@ -916,6 +918,18 @@ def _send_connect_if_active(session: dict[str, str], text: str, content_type: st
         raise
 
 
+def _reply_transport_attributes(message, previous=None):
+    """Enforce session text lock at ingress, including legacy bot sessions."""
+    previous = previous or {}
+    text = ''.join(c for c in unicodedata.normalize('NFKD', str(message.get('text') or '').lower())
+                   if not unicodedata.combining(c))
+    requested = bool(re.search(r'\b(responde|respondeme|contestame|respuesta)\b.*\b(texto|escrito|escrita)\b|\bno\s+(?:me\s+)?(?:respondas\s+)?(?:con\s+)?audio\b', text))
+    locked = previous.get('social_reply_override') == 'text' or requested
+    source = message.get('input_source') or 'text'
+    return {'social_input_source':source, 'social_reply_override':'text' if locked else 'auto',
+            'social_reply_preference':'audio' if source == 'voice' and not locked else 'text'}
+
+
 def _update_contact_attributes(session: dict[str, str], attributes: dict[str, str]) -> None:
     values = {key: str(value)[:32767] for key, value in attributes.items() if value}
     if not values or not session.get("contact_id"):
@@ -1423,8 +1437,7 @@ def _meta_event(body: dict[str, Any]) -> None:
                         "campaign_id": flow_campaign_id or str((route or {}).get("campaign_id") or ""),
                         "button_id": str(reply_id or ""),
                         "target_flow_id": str((route or {}).get("contact_flow_id") or ""),
-                        "social_input_source": str(canonical["message"].get("input_source") or "text"),
-                        "social_reply_preference": str(canonical["message"].get("reply_preference") or "text"),
+                        **_reply_transport_attributes(canonical['message']),
                         "social_audio_url": str((canonical["message"].get("agent_attachment") or {}).get("url") or ""),
                         "social_audio_filename": str((canonical["message"].get("agent_attachment") or {}).get("filename") or ""),
                     }
@@ -1438,8 +1451,10 @@ def _meta_event(body: dict[str, Any]) -> None:
                     )
                     if not is_new:
                         # Update source before the bot can answer this turn.
-                        _update_contact_attributes(session, {
-                            'social_input_source': canonical['message'].get('input_source') or 'text'})
+                        prior_transport = connect.get_contact_attributes(
+                            InstanceId=os.environ['CONNECT_INSTANCE_ID'],
+                            InitialContactId=session['contact_id'])['Attributes']
+                        _update_contact_attributes(session, _reply_transport_attributes(canonical['message'], prior_transport))
                     if canonical['message'].get('input_source') == 'voice':
                         connection = participant.create_participant_connection(
                             Type=['CONNECTION_CREDENTIALS'], ParticipantToken=session['participant_token']

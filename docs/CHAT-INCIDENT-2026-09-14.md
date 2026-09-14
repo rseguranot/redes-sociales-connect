@@ -189,3 +189,31 @@ retains the readable written hours. 119 tests plus 9 subtests cover per-turn mod
 session text lock, stale audio overrides, generative parameters and clock expansion.
 The previous browser E2E evidence above predates this generative-policy refinement;
 do not present it as a fresh real WhatsApp test of the new engine.
+
+## Production-wide voice/presentation promotion
+
+At the user's explicit request, `scripts/deploy_production_voice.py` enables
+`VOICE_ALL_PRODUCTION_USERS=true` on the production ProcessorFunction and
+MediaFunction, and `CHAT_PRESENTATION_ALL_WHATSAPP=true` on the chat adapter.
+The media worker must be promoted too: all production identities need the single
+final-transcription path, not a marker plus transcription. Uploaded media remains
+agent-visible. The baseline module is retained for rollback and other work sources.
+
+Presentation selection is separate from semantic trial selection: ordinary
+WhatsApp contacts get transport preferences and branch formatting without being
+selected for the experimental business hook or trial-only close handler. Agent
+transfer flow definitions and the existing protected test exceptions are unchanged;
+the production flag must never be used as a selector for simulated handoff.
+Phone/BSUID allowlists remain private and are not copied to public source.
+
+Ingress also owns the session text lock, before delivering each turn to Connect.
+This protects sessions missing the adapter's contact binding. A new contact starts
+fresh; a text request cannot activate audio. This does not repair every other
+legacy-session context problem or certify exhaustive CRM flows.
+
+Validation: 122 tests plus 9 subtests, including a nontrial identity, separation of
+presentation/business selection, and text-lock handling without bot binding.
+Deployment preserves template parameters, publishes immutable rollback versions,
+and rejects unrelated resource replacements. Rollback the three flags through
+CloudFormation to return to the identity-scoped release; do not switch the Meta
+webhook or change the voice-telephony flow. Existing Polly IAM permission is reused.

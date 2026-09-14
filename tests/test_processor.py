@@ -38,6 +38,25 @@ spec.loader.exec_module(processor)
 
 
 class ParserTests(unittest.TestCase):
+    def test_ingress_owns_text_lock_even_when_legacy_bot_binding_is_missing(self):
+        attrs = processor._reply_transport_attributes({'input_source':'voice','text':'Solo respóndeme en texto'})
+        self.assertEqual(attrs['social_reply_override'], 'text')
+        attrs = processor._reply_transport_attributes({'input_source':'voice','text':'Ahora responde con audio'}, attrs)
+        self.assertEqual(attrs['social_reply_preference'], 'text')
+        fresh = processor._reply_transport_attributes({'input_source':'voice','text':'Horario'})
+        self.assertEqual(fresh['social_reply_preference'], 'audio')
+        written = processor._reply_transport_attributes({'text':'Horario'}, fresh)
+        self.assertEqual(written['social_reply_preference'], 'text')
+
+    def test_production_voice_rollout_accepts_nontrial_provider_identity(self):
+        from unittest.mock import patch
+        identity = {'id':'provider-test-nontrial'}
+        with patch.dict(os.environ, {'VOICE_ALL_PRODUCTION_USERS':'true','VOICE_SINGLE_TURN_USER_IDS':'','VOICE_SINGLE_TURN_PHONE_NUMBERS':''}):
+            self.assertTrue(processor._voice_single_turn_enabled(identity))
+            self.assertFalse(processor._voice_single_turn_enabled({}))
+        with patch.dict(os.environ, {'VOICE_ALL_PRODUCTION_USERS':'false','VOICE_SINGLE_TURN_USER_IDS':'','VOICE_SINGLE_TURN_PHONE_NUMBERS':''}):
+            self.assertFalse(processor._voice_single_turn_enabled(identity))
+
     def test_spoken_clock_times_use_natural_day_periods(self):
         value = processor._spoken_clock_times('7:00 AM, 3:30 p. m., 10:00 PM, 12:00 AM, 12 PM')
         self.assertEqual(value, 'siete de la mañana, tres y media de la tarde, diez de la noche, doce de la medianoche, doce del mediodía')

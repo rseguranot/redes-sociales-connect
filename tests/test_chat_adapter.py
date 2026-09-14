@@ -89,6 +89,22 @@ def test_nontrial_does_not_enter_new_close_handler():
     close.assert_not_called()
 
 
+def test_production_presentation_does_not_select_experimental_business_hook():
+    event = {'sessionState':{'sessionAttributes':{'social_connect_contact_id':'00000000-0000-0000-0000-000000000001'}}}
+    env = {'CHAT_PRESENTATION_ALL_WHATSAPP':'true','CHAT_SEMANTIC_MODEL_ID':'test',
+           'CONTACT_CONTEXT_INSTANCE_ID':'test','CHAT_TRIAL_USER_IDS':'tester','CHAT_TRIAL_PHONES':''}
+    identity = {'social_channel':'whatsapp','social_user_id':'ordinary-customer',
+                'social_input_source':'voice','social_reply_override':'text'}
+    with patch.dict(adapter.os.environ, env), patch.object(adapter.contact_client,'get_contact_attributes',return_value={'Attributes':identity}):
+        assert adapter.semantic_trial(event) is False
+    assert event['_chat_presentation'] is True
+    assert event['sessionState']['sessionAttributes']['social_reply_override'] == 'text'
+    identity['social_channel'] = 'voice'
+    with patch.dict(adapter.os.environ, env), patch.object(adapter.contact_client,'get_contact_attributes',return_value={'Attributes':identity}):
+        assert adapter.semantic_trial(event) is False
+    assert event['_chat_presentation'] is False
+
+
 def test_yes_without_pending_question_is_not_reinterpreted():
     event = {"inputTranscript": "sí", "sessionState": {"sessionAttributes": {"branch_last_code": "PL_TEST"}}}
     assert adapter.prepare(event)["inputTranscript"] == "sí"

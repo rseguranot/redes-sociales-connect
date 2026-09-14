@@ -26,7 +26,8 @@ trial_hook_client = boto3.client('lambda', config=Config(
 
 
 def semantic_trial(event):
-    if not os.environ.get('CHAT_SEMANTIC_MODEL_ID'):
+    event['_chat_presentation'] = False
+    if not os.environ.get('CHAT_SEMANTIC_MODEL_ID') and os.environ.get('CHAT_PRESENTATION_ALL_WHATSAPP') != 'true':
         return False
     attrs = event.get('sessionState', {}).get('sessionAttributes', {})
     contact_id = attrs.get('social_connect_contact_id', '')
@@ -43,7 +44,10 @@ def semantic_trial(event):
     users = set(os.environ.get('CHAT_TRIAL_USER_IDS','').split(',')) - {''}
     phones = set(os.environ.get('CHAT_TRIAL_PHONES','').split(',')) - {''}
     selected = identity.get('social_user_id') in users or identity.get('social_phone') in phones
-    if selected:
+    presentation = selected or (os.environ.get('CHAT_PRESENTATION_ALL_WHATSAPP') == 'true'
+        and identity.get('social_channel', '').lower() == 'whatsapp')
+    event['_chat_presentation'] = presentation
+    if presentation:
         for key in TRANSPORT_KEYS:
             if identity.get(key):
                 attrs[key] = identity[key]
@@ -187,7 +191,7 @@ def collected_context(response, event):
 
 
 def persist_context(response, event):
-    if event.get('_chat_trial'):
+    if event.get('_chat_trial') or event.get('_chat_presentation'):
         for message in response.get('messages', []):
             if message.get('contentType') == 'PlainText':
                 message['content'] = polished_branch_reply(message.get('content', ''))
@@ -702,9 +706,10 @@ def lambda_handler(event, context):
     # Only trusted trial identities use this new close behavior.
     trial = semantic_trial(event)
     event['_chat_trial'] = trial
-    if trial:
+    if trial or event.get('_chat_presentation'):
         apply_reply_preference(event.setdefault('sessionState', {}).setdefault('sessionAttributes', {}),
                                event.get('inputTranscript') or event.get('rawInputTranscript') or '')
+    if trial:
         close = explicit_chat_close(event)
         if close is not None:
             return persist_context(close, event)
