@@ -29,6 +29,11 @@ def build():
     }.items():
         params[key] = {"Type": "String", "AllowedPattern": pattern}
     params["FlowName"] = {"Type": "String", "Default": "00 PROD WhatsApp AI - Atención", "MinLength": 1}
+    params["NoTransferSocialUserId"] = {"Type": "String", "MinLength": 1,
+        "Description": "Stable social user ID allowed to test handoff without reaching an agent"}
+    for key in ("NoTransferPhoneNumber1", "NoTransferPhoneNumber2"):
+        params[key] = {"Type": "String", "AllowedPattern": r"^[0-9]{7,15}$",
+            "Description": "Explicit test phone allowed to suppress agent transfer"}
     resources = template["Resources"]
     resources["ChatAlias"]["Properties"]["BotAliasName"] = "whatsapp_chat_prod"
     resources["BusinessHook"]["Properties"]["Environment"]["Variables"].update({
@@ -53,14 +58,12 @@ def build():
     main = yaml.load((ROOT / "template.yaml").read_text(encoding="utf-8"), Loader=Intrinsics)
     raw = main["Resources"]["DevelopmentAiContactFlow"]["Properties"]["Content"]["Fn::Sub"]
     flow = json.loads(raw)
-    discarded = {"CheckNoTransferIdentity", "PersonalTestGreeting", "MarkTestComplete", "TransferMessage"}
+    discarded = {"TransferMessage"}
     flow["Actions"] = [a for a in flow["Actions"] if a["Identifier"] not in discarded]
     actions = {a["Identifier"]: a for a in flow["Actions"]}
     for action in flow["Actions"]:
         transitions = action.get("Transitions", {})
         for transition in [transitions] + transitions.get("Conditions", []) + transitions.get("Errors", []):
-            if transition.get("NextAction") == "CheckNoTransferIdentity":
-                transition["NextAction"] = "CaptureAiOutcome" if action["Identifier"] == "AiBot" else "CheckHours"
             if transition.get("NextAction") == "TransferMessage":
                 transition["NextAction"] = "MarkHandoff"
     actions["EnableLogging"]["Parameters"]["FlowLoggingBehavior"] = "Disabled"
@@ -81,10 +84,35 @@ def build():
         "social_context_status": "$.Lex.SessionAttributes.social_context_status"}
     # Do not let an absent optional capture attribute prevent human routing.
     actions["CheckHandoff"]["Parameters"]["ComparisonValue"] = "$.Lex.SessionAttributes.agente"
+    actions["CheckNoTransferIdentity"]["Parameters"]["ComparisonValue"] = "$.Attributes.social_user_id"
+    actions["CheckNoTransferIdentity"]["Transitions"] = {
+        "NextAction": "CheckNoTransferPhone1",
+        "Conditions": [{"NextAction": "PersonalTestGreeting", "Condition": {
+            "Operator": "Equals", "Operands": ["${NoTransferSocialUserId}"]}}],
+        "Errors": [{"NextAction": "CheckNoTransferPhone1", "ErrorType": "NoMatchingCondition"}],
+    }
+    actions["PersonalTestGreeting"]["Parameters"]["Text"] = (
+        "Prueba completada. Esta conversación finalizará sin transferirse a un representante.")
+    actions["MarkTestComplete"]["Parameters"]["Attributes"].update({
+        "social_handoff_requested": "true", "representante": "true"})
+    flow["Actions"].extend([
+        {"Identifier": "CheckNoTransferPhone1", "Type": "Compare",
+         "Parameters": {"ComparisonValue": "$.Attributes.social_phone"},
+         "Transitions": {"NextAction": "CheckNoTransferPhone2", "Conditions": [
+             {"NextAction": "PersonalTestGreeting", "Condition": {
+                 "Operator": "Equals", "Operands": ["${NoTransferPhoneNumber1}"]}}],
+             "Errors": [{"NextAction": "CheckNoTransferPhone2", "ErrorType": "NoMatchingCondition"}]}},
+        {"Identifier": "CheckNoTransferPhone2", "Type": "Compare",
+         "Parameters": {"ComparisonValue": "$.Attributes.social_phone"},
+         "Transitions": {"NextAction": "CheckHours", "Conditions": [
+             {"NextAction": "PersonalTestGreeting", "Condition": {
+                 "Operator": "Equals", "Operands": ["${NoTransferPhoneNumber2}"]}}],
+             "Errors": [{"NextAction": "CheckHours", "ErrorType": "NoMatchingCondition"}]}},
+    ])
     actions["CheckHours"]["Parameters"]["HoursOfOperationId"] = "${HoursArn}"
     for condition in actions["AiBot"]["Transitions"]["Conditions"]:
         if condition["Condition"]["Operands"][0].lower() == "agentehumano":
-            condition["NextAction"] = "CheckHours"
+            condition["NextAction"] = "CheckNoTransferIdentity"
     actions["MarkHandoff"]["Parameters"]["Attributes"].update({
         "social_handoff_requested": "true", "representante": "true"})
     actions["ClosedMessage"]["Parameters"]["Text"] = (
@@ -92,8 +120,8 @@ def build():
         "Su conversación queda registrada. Por favor, vuelva a escribirnos durante nuestro horario de atención.")
     actions["AiErrorMessage"]["Parameters"]["Text"] = (
         "No pude continuar la atención automática. Intentaré comunicarle con un representante.")
-    actions["MarkError"]["Transitions"] = {"NextAction": "CheckHours",
-        "Errors": [{"NextAction": "CheckHours", "ErrorType": "NoMatchingError"}]}
+    actions["MarkError"]["Transitions"] = {"NextAction": "CheckNoTransferIdentity",
+        "Errors": [{"NextAction": "CheckNoTransferIdentity", "ErrorType": "NoMatchingError"}]}
     for error in actions["TransferToQueue"]["Transitions"]["Errors"]:
         error["NextAction"] = "QueueUnavailable"
     flow["Actions"].append({"Identifier": "QueueUnavailable", "Type": "MessageParticipant",
