@@ -350,8 +350,21 @@ def receipt_context(event):
             attrs.pop('chat_receipt_candidate', None)
             return chat_reply(event, 'Gracias por aclararlo. Escribe el número debajo del código de barras de la factura.')
         attrs['chat_receipt_confirmed'] = attrs.get('chat_receipt_candidate', '')
+        saved_request = attrs.pop('chat_receipt_request', '')
+        if saved_request:
+            attrs['consulta_factura'] = attrs['chat_receipt_confirmed']
+            attrs['reclamacion_documento'] = attrs['chat_receipt_confirmed']
+            attrs['reclamacion_tipo_documento'] = 'factura'
+            event['inputTranscript'] = saved_request + '\nNúmero de factura confirmado: ' + attrs['chat_receipt_confirmed']
+            event['rawInputTranscript'] = event['inputTranscript']
+            return None
         return chat_reply(event, template('Número de factura confirmado.', '¿Qué necesitas hacer con esta compra?',
                                           ['Estatus de mi pedido', 'Tengo una reclamación', 'Hablar con un agente']))
+    if attrs.get('chat_receipt_confirm_pending') == 'true' and explicit_topic(text) == 'reclamaciones':
+        attrs['chat_receipt_request'] = text[:1000]
+        return chat_reply(event, template('Entiendo que deseas realizar una reclamación. Encontré este posible número de factura: *'
+                                          + attrs.get('chat_receipt_candidate', '') + '*.',
+                                          '¿Coincide con el número debajo del código de barras?', ['Sí', 'No']))
     if ('factura' in norm and re.search(r'\b(ejemplo|modelo|formato|donde|cual)\b', norm)):
         return chat_reply(event, 'El número de factura está debajo del código de barras, la barra con muchas rayas negras.\n\nCopia ese número exactamente. El e-NCF y el RNC no son el número de factura. Si no lo encuentras, puedo comunicarte con un representante.')
     if attrs.get('bedrock_active_intent') == 'consulta' and (

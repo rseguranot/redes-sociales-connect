@@ -46,7 +46,7 @@ def deploy(cf, s3, bucket, stack, document, allowed, updates=None):
     summary = [{k:entry.get(k) for k in ('LogicalResourceId','Action','Replacement')} for entry in changes]
     print(json.dumps({'stack':stack, 'reviewed_changes':summary}), flush=True)
     if any(entry['LogicalResourceId'] not in allowed or entry['Action'] == 'Remove'
-           or entry.get('Replacement', 'False') != 'False' for entry in changes):
+           or (entry.get('Replacement') or 'False') != 'False' for entry in changes):
         cf.delete_change_set(StackName=stack, ChangeSetName=name)
         raise RuntimeError('Unrelated change or replacement rejected')
     cf.execute_change_set(StackName=stack, ChangeSetName=name)
