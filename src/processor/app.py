@@ -566,6 +566,29 @@ def _http_json(url: str, method: str = "GET", payload: dict[str, Any] | None = N
         raise RuntimeError(f"Remote API returned HTTP {exc.code}: {detail}") from exc
 
 
+def _typing_received(canonical: dict[str, Any], message: dict[str, Any]) -> None:
+    """Best-effort Meta receipt, never a customer turn or a reason to retry it."""
+    if os.environ.get('WHATSAPP_TYPING_ENABLED') != 'true' or not _voice_single_turn_enabled(canonical['customer']):
+        return
+    message_id = str(message.get('_original_meta_id') or message.get('id') or '')
+    asset = str(canonical.get('sender_asset_id') or '')
+    if not message_id.startswith('wamid.') or not asset.isdigit():
+        return
+    try:
+        secret = _secret()
+        graph = os.environ.get('META_GRAPH_VERSION', 'v26.0')
+        request = urllib.request.Request(f'https://graph.facebook.com/{graph}/{asset}/messages',
+            data=json.dumps({'messaging_product':'whatsapp', 'status':'read',
+                             'message_id':message_id, 'typing_indicator':{'type':'text'}}).encode(),
+            headers={'Authorization':f"Bearer {secret['WA_ACCESS_TOKEN']}", 'Content-Type':'application/json'}, method='POST')
+        with urllib.request.urlopen(request, timeout=3) as response:
+            accepted = json.loads(response.read() or b'{}').get('success') is True
+        _metric('TypingReceiptAccepted' if accepted else 'TypingReceiptRejected', Channel='whatsapp')
+    except (ClientError, urllib.error.URLError, TimeoutError, ValueError, KeyError):
+        # No tokens, URL, response body or message identifiers in this log.
+        _metric('TypingReceiptFailed', Channel='whatsapp')
+
+
 def _identity(change: dict[str, Any], message: dict[str, Any]) -> dict[str, str]:
     contacts = change.get("contacts") or []
     contact = contacts[0] if contacts else {}
@@ -1322,6 +1345,7 @@ def _meta_event(body: dict[str, Any]) -> None:
                     continue
                 try:
                     canonical = _canonical_envelope(change, message)
+                    _typing_received(canonical, message)
                     identity = canonical["customer"]
                     text = canonical["message"]["text"]
                     media_kind = str(message.get("type") or "")
@@ -1893,6 +1917,7 @@ def _transcribed_audio_event(payload: dict[str, Any]) -> None:
     }
     if payload.get("voice_single_turn"):
         message.update({
+            "_original_meta_id": str(original.get('id') or ''),
             "_social_input_source": "voice",
             "_social_reply_preference": "audio",
             "_agent_attachment": dict(payload.get("agent_attachment") or {}),

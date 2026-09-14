@@ -1005,6 +1005,10 @@ def _handle_direct_qconnect_retrieve(session_state: Dict[str, Any], session_attr
                     message = _format_catalog_lookup_fallback(query)
                 else:
                     message = _format_product_answer(products, offset, has_followup_query)
+                if session_attrs.get('chat_semantic_trial') == 'true':
+                    session_attrs['chat_catalog_options'] = json.dumps([
+                        {'name': p['name'][:160], 'price': p['price'][:60]}
+                        for p in products[offset:offset + 5]], ensure_ascii=False)
                 session_attrs['qconnect_direct_retrieve_count'] = str(len(contents))
                 session_attrs['qconnect_last_query'] = query
                 session_attrs['qconnect_result_offset'] = str(offset)

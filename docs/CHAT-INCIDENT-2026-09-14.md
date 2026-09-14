@@ -61,3 +61,56 @@ agent opening the original audio. Native OGG attachment support is not configure
 the agent application link is the fallback. Audio replies are not enabled: source
 and response-preference metadata are foundations, not completed TTS functionality.
 This release does not certify every business API outcome or every customer utterance.
+
+## Identity-scoped semantic and typing trial
+
+The follow-up release uses `scripts/deploy_semantic_trial.py` with the exact live
+templates. It reads private selectors from existing runtime configuration and
+passes them as NoEcho parameters; no customer identity belongs in source control.
+Keep these live-template additions when regenerating infrastructure: the generic
+production builder is not a replacement for this trial deployment script.
+
+- Processor/media candidate sends Meta read + text typing status only for the
+  existing trial identities. Receipt failure does not retry the customer turn.
+- Adapter verifies identity through Connect contact attributes, not a username or
+  a caller-supplied trial flag. Preserve the contact binding across hook replies.
+- A constrained Bedrock classifier interprets product queries and topic changes.
+  Product fields must be quoted from the current input or grounded prior fields.
+- Concrete categories can search without a brand. Vague product requests ask for
+  the product. A brand by itself does not imply a category.
+- A separate `SemanticBusinessTrial` Lambda, pinned by version, exposes catalog
+  records to the adapter. The original business Lambda/version stays unchanged.
+- Native DSL lists show up to four catalog records; detail buttons reuse those
+  records. Prices and branch stock are explicitly unconfirmed. Long lists are
+  bounded below the WhatsApp body limit.
+- Trial-only downstream error/timeout handling reports an unconfirmed outcome;
+  it does not automatically repeat a case-creation request.
+
+Change-set protection rejected an attempted SAM business alias/version rotation;
+that change set was not executed. The separate trial function avoids that change.
+Pre-change immutable adapter versions are retained. Definite/unrelated replacements
+remain prohibited; unchanged dynamic Lex dependencies are checked after updates.
+
+Validation: 107 unit tests plus 9 subtests passed; cfn-lint returned no findings
+for the deployed chat template. Real WhatsApp confirmed a fresh-session vague
+product clarification, native category list, a four-record LG catalog list,
+selection of its first product, and a subsequent Santiago location question
+returning a branch rather than a TV-purchase question. A category alone also
+returned catalog options after the classifier refinement. Read status was visible;
+An explicit singular-TV query with `43 in.` returned a matching 43-inch LG record
+and a native detail button after the final catalog-query normalization.
+Meta accepted eight read/typing requests in the sampled test window. The transient
+typing animation itself was not visually captured.
+
+The initial real test exposed missing contact binding in an older session; it
+fell back to the baseline and reproduced the unwanted product. A new test session
+and binding preservation resolved the tested path. Existing sessions already
+missing that binding are not silently identified by display name.
+
+The earlier unanswered message remains unproven at root cause: the sampled
+16:54–17:02 UTC adapter/business logs showed invocations but no matching timeout,
+error or throttle signatures. Do not claim the new fallback proves that incident
+fixed. Fresh voice-message E2E, transient typing UI, range constraints (such as
+greater-than screen sizes), and exhaustive business flows remain additional QA.
+No TTS response, voice-channel migration, or Agentic CX Designer migration was
+enabled by this trial.

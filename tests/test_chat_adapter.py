@@ -1,5 +1,6 @@
 import importlib.util
 import copy
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -19,6 +20,88 @@ def test_short_yes_keeps_branch_and_pending_question():
 def test_yes_without_pending_question_is_not_reinterpreted():
     event = {"inputTranscript": "sí", "sessionState": {"sessionAttributes": {"branch_last_code": "PL_TEST"}}}
     assert adapter.prepare(event)["inputTranscript"] == "sí"
+
+
+def semantic_result(data):
+    return {'output':{'message':{'content':[{'text':json.dumps(data)}]}}}
+
+
+def test_semantic_vague_product_asks_without_retrieval():
+    event = {'inputTranscript':'Información sobre producto','sessionState':{'sessionAttributes':{}}}
+    with patch.dict(adapter.os.environ,{'CHAT_SEMANTIC_MODEL_ID':'test'}), patch.object(adapter.semantic_client,'converse',return_value=semantic_result(
+            {'intent':'generic_product','product':'','brand':'','features':''})):
+        response = adapter.semantic_product(event)
+    assert '¿Qué producto buscas?' in response['messages'][0]['content']
+    assert not event.get('_semantic_product')
+
+
+def test_semantic_rejects_invented_product():
+    event = {'inputTranscript':'Información sobre producto','sessionState':{'sessionAttributes':{}}}
+    with patch.dict(adapter.os.environ,{'CHAT_SEMANTIC_MODEL_ID':'test'}), patch.object(adapter.semantic_client,'converse',return_value=semantic_result(
+            {'intent':'product_search','product':'televisor','brand':'LG','features':''})):
+        response = adapter.semantic_product(event)
+    assert 'No pude interpretar' in response['messages'][0]['content']
+    assert not event.get('_semantic_product')
+
+
+def test_semantic_options_preserve_grounded_product():
+    event = {'inputTranscript':'Ver opciones','sessionState':{'sessionAttributes':{
+        'chat_semantic_product':'televisor','chat_semantic_brand':'LG'}}}
+    with patch.dict(adapter.os.environ,{'CHAT_SEMANTIC_MODEL_ID':'test'}), patch.object(adapter.semantic_client,'converse',return_value=semantic_result(
+            {'intent':'product_options','product':'televisor','brand':'LG','features':''})):
+        assert adapter.semantic_product(event) is None
+    assert event['inputTranscript']=='precio televisores LG'
+    assert event['_semantic_product']
+
+
+def test_catalog_presentation_uses_only_returned_records():
+    event = {'_semantic_product':True,'sessionState':{'sessionAttributes':{'chat_semantic_product':'TV'}}}
+    response = {'sessionState':{'sessionAttributes':{'chat_catalog_options':json.dumps([
+        {'name':'TV TEST A','price':'RD$ 10'},{'name':'TV TEST B','price':'RD$ 20'}])}},
+        'messages':[{'contentType':'PlainText','content':'ignore this generated prose'}]}
+    result = adapter.adapt(response,event)
+    content = result['messages'][0]['content']
+    assert '[plantilla]' in content and '[opcion] Ver producto 2' in content
+    assert 'TV TEST A' in content and 'ignore this' not in content
+
+
+def test_catalog_empty_never_invents_options():
+    result = adapter.adapt({'sessionState':{'sessionAttributes':{}},'messages':[]},
+                          {'_semantic_product':True,'sessionState':{'sessionAttributes':{}}})
+    assert 'No encontré opciones verificables' in result['messages'][0]['content']
+
+
+def test_trial_cannot_be_enabled_by_lex_attribute_alone():
+    with patch.dict(adapter.os.environ,{'CHAT_SEMANTIC_MODEL_ID':'test'}):
+        assert not adapter.semantic_trial({'sessionState':{'sessionAttributes':{'chat_semantic_trial':'true'}}})
+
+
+def test_contact_binding_survives_business_attribute_replacement():
+    cid='00000000-0000-0000-0000-000000000001'
+    event={'sessionState':{'sessionAttributes':{'social_connect_contact_id':cid}}}
+    with patch.dict(adapter.os.environ,{'CONTACT_CONTEXT_INSTANCE_ID':'test'}), patch.object(adapter.contact_client,'update_contact_attributes'):
+        result=adapter.persist_context({'sessionState':{'sessionAttributes':{}}},event)
+    assert result['sessionState']['sessionAttributes']['social_connect_contact_id']==cid
+
+
+def test_semantic_store_question_discards_product_state():
+    event={'inputTranscript':'Qué sucursales tienen en Santiago?', 'sessionState':{'sessionAttributes':{
+        'chat_semantic_product':'televisor','chat_product_active':'true','chat_product_brand':'LG'}}}
+    with patch.dict(adapter.os.environ,{'CHAT_SEMANTIC_MODEL_ID':'test'}), patch.object(adapter.semantic_client,'converse',return_value=semantic_result({'intent':'store_information'})):
+        assert adapter.semantic_product(event) is None
+    assert event['inputTranscript'].startswith('Sucursales: ')
+    assert 'chat_product_active' not in event['sessionState']['sessionAttributes']
+
+
+def test_catalog_body_fits_whatsapp_and_options_match_visible_records():
+    event={'_semantic_product':True,'sessionState':{'sessionAttributes':{}}}
+    response={'sessionState':{'sessionAttributes':{'chat_catalog_options':json.dumps([
+        {'name':'X'*160,'price':'P'*60} for _ in range(5)])}}}
+    result=adapter.adapt(response,event)
+    text=result['messages'][0]['content']
+    assert len(text.split('[opcion]')[0])<1024
+    assert text.count('[opcion]')==4
+    assert len(json.loads(result['sessionState']['sessionAttributes']['chat_catalog_options']))==4
 
 
 def test_status_after_authored_invoice_help_discards_stale_lex_handoff():

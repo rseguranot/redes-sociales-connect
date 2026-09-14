@@ -37,6 +37,30 @@ spec.loader.exec_module(processor)
 
 
 class ParserTests(unittest.TestCase):
+    def test_typing_receipt_is_scoped_and_never_retries_customer_message(self):
+        from unittest.mock import patch, MagicMock
+        envelope={'customer':{'id':'tester'},'sender_asset_id':'12345'}
+        response=MagicMock()
+        response.__enter__.return_value.read.return_value=b'{"success":true}'
+        with patch.dict(os.environ,{'WHATSAPP_TYPING_ENABLED':'true'}), \
+             patch.object(processor,'_voice_single_turn_enabled',return_value=True), \
+             patch.object(processor,'_secret',return_value={'WA_ACCESS_TOKEN':'test-token'}), \
+             patch.object(processor,'_metric') as metric, \
+             patch.object(processor.urllib.request,'urlopen',return_value=response) as request:
+            processor._typing_received(envelope,{'id':'wamid.test'})
+            payload=json.loads(request.call_args.args[0].data)
+            self.assertEqual(payload['status'],'read')
+            self.assertEqual(payload['typing_indicator'],{'type':'text'})
+            self.assertEqual(request.call_args.kwargs['timeout'],3)
+            request.side_effect=TimeoutError()
+            processor._typing_received(envelope,{'id':'wamid.test'})
+            metric.assert_called_with('TypingReceiptFailed',Channel='whatsapp')
+        with patch.dict(os.environ,{'WHATSAPP_TYPING_ENABLED':'true'}), \
+             patch.object(processor,'_voice_single_turn_enabled',return_value=False), \
+             patch.object(processor,'_secret') as secret:
+            processor._typing_received(envelope,{'id':'wamid.test'})
+            secret.assert_not_called()
+
     def test_production_routing_requires_exact_business_sender_asset(self):
         from unittest.mock import patch
         with patch.dict(os.environ, {"PRODUCTION_AI_CONTACT_FLOW_ID": "prod-flow", "PRODUCTION_AI_SENDER_ASSET_IDS": "111, 222"}):
