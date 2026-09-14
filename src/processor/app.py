@@ -1356,6 +1356,10 @@ def _meta_event(body: dict[str, Any]) -> None:
                         ExpressionAttributeValues={":s": status, ":u": int(time.time())},
                     )
             for message in change.get("messages") or []:
+                if message.get('type') in {'reaction', 'system'}:
+                    # Delivery/identity notifications and reactions are not new customer turns.
+                    _metric('NonConversationalEventIgnored', MessageType=message['type'])
+                    continue
                 message_id = str(message.get("id") or uuid.uuid4())
                 if not _claim(message_id):
                     continue
@@ -1776,7 +1780,13 @@ def _bot_voice_reply(event, row, identity, content):
         if interactive:
             node = payload['interactive']
             speech = '\n'.join((str(node.get(k, {}).get('text', '')) for k in ('header', 'body', 'footer')))
-            speech += '\nPuedes elegir una de las opciones que aparecen en el chat.'
+            if 'Opciones encontradas en el catálogo:' in speech:
+                # Keep exact models/prices in the native list; avoid reading long SKUs aloud.
+                speech = ('Encontré opciones en el catálogo y te las dejé por escrito con sus precios. '
+                          'Puedes decir, por ejemplo, háblame de la opción número tres, o tocar una opción. '
+                          'El precio y la disponibilidad por sucursal requieren confirmación.')
+            else:
+                speech += '\nPuedes elegir una de las opciones que aparecen en el chat o responderme con tu voz.'
         elif payload:
             if payload.get('type') != 'text':
                 return False

@@ -38,6 +38,30 @@ spec.loader.exec_module(processor)
 
 
 class ParserTests(unittest.TestCase):
+    def test_reactions_and_system_events_never_create_customer_turns(self):
+        from unittest.mock import patch
+        body={'entry':[{'changes':[{'value':{'messages':[{'type':'reaction'}, {'type':'system'}]}}]}]}
+        with patch.object(processor,'_claim') as claim, patch.object(processor,'_canonical_envelope') as canonical, patch.object(processor,'_metric'):
+            processor._meta_event(body)
+        claim.assert_not_called()
+        canonical.assert_not_called()
+
+    def test_spoken_catalog_keeps_native_prices_and_does_not_read_skus(self):
+        from unittest.mock import patch, MagicMock
+        event={'ParticipantRole':'SYSTEM','Id':'test-menu','ContactId':'test-contact'}
+        payload={'type':'interactive','interactive':{'body':{'text':'Opciones encontradas en el catálogo:\nTV SKU987XYZ Precio RD$ 10'}}}
+        with patch.dict(os.environ, {'WHATSAPP_BOT_VOICE_ENABLED':'true','CONNECT_INSTANCE_ID':'test'}), \
+             patch.object(processor,'_voice_single_turn_enabled',return_value=True), \
+             patch.object(processor.connect,'get_contact_attributes',return_value={'Attributes':{'social_reply_preference':'audio','social_input_source':'voice'}}), \
+             patch.object(processor,'ddb',MagicMock()), patch.object(processor,'_system_whatsapp_payload',return_value=payload), \
+             patch.object(processor.polly,'synthesize_speech',return_value={'AudioStream':io.BytesIO(b'OggSOpusHead')}) as synth, \
+             patch.object(processor,'_upload_whatsapp_media',return_value='test'), patch.object(processor,'_send_whatsapp'), patch.object(processor,'_metric'):
+            processor.ddb.get_item.return_value={}
+            self.assertFalse(processor._bot_voice_reply(event,{}, {'id':'test'},'menu'))
+        self.assertNotIn('SKU987XYZ',synth.call_args.kwargs['Text'])
+        self.assertIn('opción número tres',synth.call_args.kwargs['Text'])
+        self.assertIn('SKU987XYZ',payload['interactive']['body']['text'])
+
     def test_ingress_owns_text_lock_even_when_legacy_bot_binding_is_missing(self):
         attrs = processor._reply_transport_attributes({'input_source':'voice','text':'Solo respóndeme en texto'})
         self.assertEqual(attrs['social_reply_override'], 'text')

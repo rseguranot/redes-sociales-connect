@@ -1,0 +1,15 @@
+# Narrow release controls, not a claim of organization-wide compliance.
+rule chat_safety when Resources.ChatAdapter exists {
+    Resources.ChatAdapter.Properties.Environment.Variables.CHAT_DIALOGUE_SAFETY_ENABLED == "true"
+    Resources.ChatAdapter.Properties.Environment.Variables.CHAT_TRIAL_BUSINESS_HOOK_ARN exists
+    Resources.ChatAdapter.Properties.Environment.Variables.BUSINESS_HOOK_ARN exists
+    Resources.ChatBot.Properties.DataPrivacy.ChildDirected == false
+    Resources.Logs.Properties.RetentionInDays == 30
+}
+rule transport_safety when Resources.ProcessorFunction exists {
+    Resources.ProcessorFunction.Properties.Environment.Variables.VOICE_ALL_PRODUCTION_USERS == "true"
+    Resources.ProcessorFunction.Properties.Environment.Variables.VOICE_BASELINE_MODULE exists
+    Resources.MediaFunction.Properties.Environment.Variables.VOICE_BASELINE_MODULE exists
+    Resources.MediaBucket.Properties.PublicAccessBlockConfiguration.BlockPublicAcls == true
+    Resources.MediaBucket.Properties.PublicAccessBlockConfiguration.BlockPublicPolicy == true
+}
