@@ -43,6 +43,10 @@ def semantic_trial(event):
     users = set(os.environ.get('CHAT_TRIAL_USER_IDS','').split(',')) - {''}
     phones = set(os.environ.get('CHAT_TRIAL_PHONES','').split(',')) - {''}
     selected = identity.get('social_user_id') in users or identity.get('social_phone') in phones
+    if selected:
+        for key in TRANSPORT_KEYS:
+            if identity.get(key):
+                attrs[key] = identity[key]
     print(json.dumps({'event':'semantic_trial_selector','result':'trial' if selected else 'baseline'}))
     return selected
 
@@ -183,6 +187,10 @@ def collected_context(response, event):
 
 
 def persist_context(response, event):
+    if event.get('_chat_trial'):
+        for message in response.get('messages', []):
+            if message.get('contentType') == 'PlainText':
+                message['content'] = polished_branch_reply(message.get('content', ''))
     instance = os.environ.get("CONTACT_CONTEXT_INSTANCE_ID", "")
     source = event.get("sessionState", {}).get("sessionAttributes", {})
     contact_id = source.get("social_connect_contact_id", "")
@@ -222,7 +230,7 @@ def template(body, question, options):
 
 PRODUCT_KEYS = ("chat_product_active", "chat_product_brand", "chat_product_size",
                 "chat_product_branch", "chat_product_model", "chat_product_technology")
-TRANSPORT_KEYS = ("social_input_source", "social_reply_preference")
+TRANSPORT_KEYS = ("social_input_source", "social_reply_preference", "social_reply_override")
 BRANCH_NAMES = {"27 de febrero": "27 de Febrero", "herrera": "Herrera",
                 "la romana": "La Romana", "duarte": "Duarte",
                 "santiago": "Santiago", "bavaro": "Bávaro",
@@ -273,8 +281,38 @@ def apply_reply_preference(attrs, text):
     value = normalized(text)
     if re.search(r"\b(responde|respondeme|contestame|respuesta)\b.*\b(texto|escrito|escrita)\b|\bno\s+(?:me\s+)?(?:respondas\s+)?(?:con\s+)?audio\b", value):
         attrs["social_reply_preference"] = "text"
+        attrs['social_reply_override'] = 'text'
     elif re.search(r"\b(responde|respondeme|contestame|respuesta)\b.*\b(audio|voz|nota de voz)\b", value):
         attrs["social_reply_preference"] = "audio"
+        attrs['social_reply_override'] = 'audio'
+    elif attrs.get('social_reply_override') in {'text', 'audio'}:
+        attrs['social_reply_preference'] = attrs['social_reply_override']
+    else:
+        attrs['social_reply_preference'] = 'audio' if attrs.get('social_input_source') == 'voice' else 'text'
+
+
+def polished_branch_reply(text):
+    """Format existing branch facts; never rewrite catalog names or identifiers."""
+    if (text.lstrip().startswith('[plantilla]') and 'Plaza Lama' in text
+            and re.search(r'\b[Ll]unes a s[aá]bado de \d', text)):
+        text = re.sub(r'\b[Ll]unes a sabado\b', 'lunes a sábado', text)
+        text = re.sub(r'\bAM\b', 'a. m.', text)
+        return re.sub(r'\bPM\b\.?', 'p. m.', text)
+    match = re.fullmatch(r'(Plaza Lama [^\n]+?) est[aá] en (.+?)\.\s*Su horario es (.+?)\s*¿?Deseas consultar otra cosa\?', text.strip(), re.S)
+    if not match:
+        return text
+    branch, address, hours = match.groups()
+    address = re.sub(r'\bJimenez\b', 'Jiménez', address)
+    address = re.sub(r'\bSanchez\b', 'Sánchez', address)
+    hours = re.sub(r'\bsabado\b', 'sábado', hours, flags=re.I)
+    hours = re.sub(r'\bmiercoles\b', 'miércoles', hours, flags=re.I)
+    hours = re.sub(r'\bLunes\b', 'lunes', hours)
+    hours = re.sub(r'\bAM\b', 'a. m.', hours)
+    hours = re.sub(r'\bPM\b', 'p. m.', hours)
+    hours = re.sub(r'\s*(?:;|-|•)\s*(?=domingo\b)', '\n- ', hours, flags=re.I).strip()
+    hours = hours.rstrip('.') + '.'
+    return ('*' + branch + '*\n\n*Dirección:*\n' + address + '.\n\n*Horario:*\n- '
+            + hours + '\n\n¿Deseas consultar otra cosa?')
 
 
 def chat_reply(event, text):
@@ -664,7 +702,10 @@ def adapt(response, event):
 def lambda_handler(event, context):
     # Only trusted trial identities use this new close behavior.
     trial = semantic_trial(event)
+    event['_chat_trial'] = trial
     if trial:
+        apply_reply_preference(event.setdefault('sessionState', {}).setdefault('sessionAttributes', {}),
+                               event.get('inputTranscript') or event.get('rawInputTranscript') or '')
         close = explicit_chat_close(event)
         if close is not None:
             return persist_context(close, event)

@@ -17,6 +17,34 @@ def test_short_yes_keeps_branch_and_pending_question():
     assert event["inputTranscript"] == "sí"
 
 
+def test_branch_spelling_and_layout_preserve_facts():
+    text=('Plaza Lama 27 de Febrero esta en 302 Av. 27 de Febrero Esq. Jimenez Moya, Bella Vista, Santo Domingo. '
+          'Su horario es Lunes a sabado de 7:00 AM a 10:00 PM\n- domingo de 8:00 AM a 8:00 PM.\n\nDeseas consultar otra cosa?')
+    result=adapter.polished_branch_reply(text)
+    assert '*Dirección:*\n302 Av.' in result and 'Jiménez Moya' in result
+    assert '*Horario:*\n- lunes a sábado' in result
+    assert '\n- domingo de 8:00 a. m. a 8:00 p. m.' in result
+    assert result.endswith('¿Deseas consultar otra cosa?')
+    product='[plantilla]\n[informacion]\nTV MODELO SABADO'
+    assert adapter.polished_branch_reply(product)==product
+    menu = '[plantilla]\n[informacion]\n*Plaza Lama 27 de Febrero*\n- Lunes a sabado de 7:00 AM a 10:00 PM\n[pregunta]\n¿Necesitas algo más?\n[opcion] Ver dirección'
+    fixed = adapter.polished_branch_reply(menu)
+    assert 'lunes a sábado de 7:00 a. m. a 10:00 p. m.' in fixed
+    assert '[opcion] Ver dirección' in fixed
+
+
+def test_voice_preference_and_explicit_text_override():
+    attrs={'social_input_source':'voice'}
+    adapter.apply_reply_preference(attrs,'Dónde está la sucursal?')
+    assert attrs['social_reply_preference']=='audio'
+    adapter.apply_reply_preference(attrs,'Respóndeme en texto')
+    assert attrs['social_reply_preference']=='text'
+    adapter.apply_reply_preference(attrs,'Y el horario?')
+    assert attrs['social_reply_preference']=='text'
+    adapter.apply_reply_preference(attrs,'Respóndeme con audio')
+    assert attrs['social_reply_preference']=='audio'
+
+
 def test_explicit_close_overrides_catalog_receipt_and_handoff_state():
     for text in ['finalizar','Finalizar.','quiero finalizar','cerrar el chat',
                  'Por favor, terminaR la conversación','finalizar, gracias']:

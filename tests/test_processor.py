@@ -23,6 +23,7 @@ sys.modules["boto3.dynamodb"] = types.ModuleType("boto3.dynamodb")
 sys.modules["boto3.dynamodb.conditions"] = conditions
 botocore = types.ModuleType("botocore.exceptions")
 botocore.ClientError = Exception
+botocore.BotoCoreError = Exception
 sys.modules["botocore"] = types.ModuleType("botocore")
 sys.modules["botocore.exceptions"] = botocore
 botocore_config = types.ModuleType("botocore.config")
@@ -37,6 +38,69 @@ spec.loader.exec_module(processor)
 
 
 class ParserTests(unittest.TestCase):
+    def test_bot_voice_uses_pedro_opus_and_records_sent(self):
+        from unittest.mock import patch, MagicMock
+        event={'ParticipantRole':'SYSTEM','Id':'reply-test','InitialContactId':'contact-test'}
+        table=MagicMock(); table.get_item.return_value={}
+        with patch.dict(os.environ,{'WHATSAPP_BOT_VOICE_ENABLED':'true','CONNECT_INSTANCE_ID':'test'}), \
+             patch.object(processor,'_voice_single_turn_enabled',return_value=True), \
+             patch.object(processor.connect,'get_contact_attributes',return_value={'Attributes':{'social_reply_preference':'audio'}}), \
+             patch.object(processor,'ddb',table), \
+             patch.object(processor.polly,'synthesize_speech',return_value={'AudioStream':io.BytesIO(b'OggSOpusHead'+b'a'*32)}) as synth, \
+             patch.object(processor,'_upload_whatsapp_media',return_value='media-test'), \
+             patch.object(processor,'_send_whatsapp') as send, patch.object(processor,'_metric'):
+            self.assertTrue(processor._bot_voice_reply(event,{}, {'id':'tester'},'Hola.'))
+            self.assertEqual(synth.call_args.kwargs['VoiceId'],'Pedro')
+            self.assertEqual(synth.call_args.kwargs['OutputFormat'],'ogg_opus')
+            self.assertTrue(send.call_args.args[1]['audio']['voice'])
+            self.assertEqual(table.put_item.call_args.kwargs['Item']['status'],'SENT')
+            table.get_item.return_value={'Item':{'status':'SENT'}}
+            self.assertTrue(processor._bot_voice_reply(event,{}, {'id':'tester'},'Hola.'))
+            self.assertEqual(send.call_count,1)
+
+    def test_bot_voice_text_preference_and_synthesis_failure_fall_back(self):
+        from unittest.mock import patch, MagicMock
+        event = {'ParticipantRole':'SYSTEM','Id':'test-fallback','ContactId':'test-contact'}
+        with patch.dict(os.environ, {'WHATSAPP_BOT_VOICE_ENABLED':'true','CONNECT_INSTANCE_ID':'test'}), \
+             patch.object(processor, '_voice_single_turn_enabled', return_value=True), \
+             patch.object(processor.connect, 'get_contact_attributes') as attrs, \
+             patch.object(processor, 'ddb', MagicMock()), \
+             patch.object(processor.polly, 'synthesize_speech', side_effect=TimeoutError()) as synth, \
+             patch.object(processor, '_send_whatsapp') as send, patch.object(processor, '_metric'):
+            attrs.return_value = {'Attributes':{'social_reply_preference':'text'}}
+            self.assertFalse(processor._bot_voice_reply(event, {}, {'id':'test'}, 'Hola'))
+            synth.assert_not_called()
+            attrs.return_value = {'Attributes':{'social_reply_preference':'audio'}}
+            processor.ddb.get_item.return_value = {}
+            self.assertFalse(processor._bot_voice_reply(event, {}, {'id':'test'}, 'Hola'))
+            send.assert_not_called()
+
+    def test_bot_voice_keeps_interactive_controls_after_audio(self):
+        from unittest.mock import patch, MagicMock
+        event = {'ParticipantRole':'SYSTEM','Id':'test-menu','ContactId':'test-contact'}
+        with patch.dict(os.environ, {'WHATSAPP_BOT_VOICE_ENABLED':'true','CONNECT_INSTANCE_ID':'test'}), \
+             patch.object(processor, '_voice_single_turn_enabled', return_value=True), \
+             patch.object(processor.connect, 'get_contact_attributes', return_value={'Attributes':{'social_reply_preference':'audio'}}), \
+             patch.object(processor, 'ddb', MagicMock()), \
+             patch.object(processor, '_system_whatsapp_payload', return_value={'type':'interactive','interactive':{'body':{'text':'*Hola*'}}}), \
+             patch.object(processor.polly, 'synthesize_speech', return_value={'AudioStream':io.BytesIO(b'OggSOpusHead')}) as synth, \
+             patch.object(processor, '_upload_whatsapp_media', return_value='test-media'), \
+             patch.object(processor, '_send_whatsapp') as send, patch.object(processor, '_metric'):
+            processor.ddb.get_item.return_value = {}
+            self.assertFalse(processor._bot_voice_reply(event, {}, {'id':'test'}, 'menu'))
+            self.assertIn('opciones', synth.call_args.kwargs['Text'])
+            self.assertNotIn('*', synth.call_args.kwargs['Text'])
+            send.assert_called_once()
+
+    def test_bot_voice_never_speaks_agent_or_nontrial_content(self):
+        from unittest.mock import patch
+        with patch.dict(os.environ,{'WHATSAPP_BOT_VOICE_ENABLED':'true'}), \
+             patch.object(processor,'_voice_single_turn_enabled',return_value=False), \
+             patch.object(processor.polly,'synthesize_speech') as synth:
+            for role in ['AGENT','SYSTEM']:
+                self.assertFalse(processor._bot_voice_reply({'ParticipantRole':role},{},{'id':'normal'},'Hola'))
+            synth.assert_not_called()
+
     def test_typing_receipt_is_scoped_and_never_retries_customer_message(self):
         from unittest.mock import patch, MagicMock
         envelope={'customer':{'id':'tester'},'sender_asset_id':'12345'}

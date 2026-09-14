@@ -22,7 +22,7 @@ from typing import Any
 import boto3
 from boto3.dynamodb.conditions import Key
 from botocore.config import Config
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 
 ddb = boto3.resource("dynamodb").Table(os.environ["STATE_TABLE"])
@@ -32,6 +32,8 @@ s3 = boto3.client("s3", config=Config(signature_version="s3v4"))
 secrets = boto3.client("secretsmanager")
 textract = boto3.client("textract")
 transcribe = boto3.client("transcribe")
+polly = boto3.client('polly', config=Config(connect_timeout=3, read_timeout=15,
+    retries={'total_max_attempts':1, 'mode':'standard'}))
 sqs = boto3.client("sqs")
 bedrock = boto3.client("bedrock-runtime", config=Config(retries={"max_attempts": 5, "mode": "adaptive"}))
 _secret_cache: tuple[float, dict[str, str]] | None = None
@@ -1434,6 +1436,10 @@ def _meta_event(body: dict[str, Any]) -> None:
                         initial_content_type=chat_content_type,
                         defer_initial_message=canonical['message'].get('input_source') == 'voice',
                     )
+                    if not is_new:
+                        # Update source before the bot can answer this turn.
+                        _update_contact_attributes(session, {
+                            'social_input_source': canonical['message'].get('input_source') or 'text'})
                     if canonical['message'].get('input_source') == 'voice':
                         connection = participant.create_participant_connection(
                             Type=['CONNECTION_CREDENTIALS'], ParticipantToken=session['participant_token']
@@ -1443,8 +1449,6 @@ def _meta_event(body: dict[str, Any]) -> None:
                     elif not is_new:
                         _send_connect(session, text, chat_content_type)
                     explicit_delivery = {
-                        "social_input_source": canonical["message"].get("input_source"),
-                        "social_reply_preference": canonical["message"].get("reply_preference"),
                         "social_audio_url": (canonical["message"].get("agent_attachment") or {}).get("url"),
                         "social_audio_filename": (canonical["message"].get("agent_attachment") or {}).get("filename"),
                     }
@@ -1718,6 +1722,64 @@ def _history_row_for_contact(contact_id: str) -> dict[str, Any] | None:
     return None
 
 
+def _bot_voice_reply(event, row, identity, content):
+    """Speak approved bot content for private trial identities; preserve controls."""
+    if (os.environ.get('WHATSAPP_BOT_VOICE_ENABLED') != 'true'
+            or event.get('ParticipantRole', '').upper() != 'SYSTEM'
+            or not _voice_single_turn_enabled(identity)):
+        return False
+    contact_id = str(event.get('InitialContactId') or event.get('ContactId') or '')
+    try:
+        attrs = connect.get_contact_attributes(InstanceId=os.environ['CONNECT_INSTANCE_ID'],
+            InitialContactId=contact_id)['Attributes']
+        if attrs.get('social_reply_preference') != 'audio':
+            return False
+        payload = _system_whatsapp_payload(content)
+        if payload is None and _is_template_dsl(content):
+            payload, _ = _template_dsl_payload(content, row)
+        interactive = bool(payload and payload.get('type') == 'interactive')
+        if interactive:
+            node = payload['interactive']
+            speech = '\n'.join((str(node.get(k, {}).get('text', '')) for k in ('header', 'body', 'footer')))
+            speech += '\nPuedes elegir una de las opciones que aparecen en el chat.'
+        elif payload:
+            if payload.get('type') != 'text':
+                return False
+            speech = payload.get('text', {}).get('body', '')
+        else:
+            speech = content
+        speech = re.sub(r'\[([^\]]+)\]\(https?://[^)]+\)', r'\1', speech)
+        speech = re.sub(r'https?://\S+', '', speech)
+        speech = re.sub(r'[*_`~]', '', speech).strip()
+        if not speech or len(speech) > 2900:
+            return False  # Never silently truncate a business answer.
+        event_id = str(event.get('Id') or _stable_id(content))
+        key = {'pk':'BOT_VOICE#'+_stable_id(contact_id+':'+event_id), 'sk':'DELIVERY'}
+        cached = ddb.get_item(Key=key, ConsistentRead=True).get('Item', {})
+        if cached.get('status') == 'SENT':
+            return not interactive
+        media_id = cached.get('media_id')
+        if not media_id:
+            response = polly.synthesize_speech(VoiceId='Pedro', LanguageCode='es-US',
+                Engine='neural', OutputFormat='ogg_opus', SampleRate='48000', TextType='text', Text=speech)
+            with response['AudioStream'] as stream:
+                blob = stream.read()
+            if not blob.startswith(b'OggS') or b'OpusHead' not in blob[:256]:
+                raise ValueError('unexpected_audio_format')
+            media_id = _upload_whatsapp_media(blob, 'audio/ogg; codecs=opus', 'respuesta.ogg')
+            ddb.put_item(Item={**key, 'status':'READY', 'media_id':media_id,
+                               'ttl':int(time.time())+7*86400})
+    except (BotoCoreError, ClientError, urllib.error.URLError, TimeoutError, ValueError, KeyError, RuntimeError):
+        _metric('BotVoiceFallback', Reason='prepare_failed')
+        return False
+    # Keep delivery failures retryable, reusing the already generated media.
+    _send_whatsapp(identity, {'type':'audio', 'audio':{'id':media_id, 'voice':True}})
+    ddb.put_item(Item={**key, 'status':'SENT', 'media_id':media_id,
+                       'ttl':int(time.time())+7*86400})
+    _metric('BotVoiceSent', Voice='Pedro')
+    return not interactive
+
+
 def _connect_event(notification: dict[str, Any]) -> None:
     event = notification.get("Message")
     if isinstance(event, str):
@@ -1745,6 +1807,8 @@ def _connect_event(notification: dict[str, Any]) -> None:
     if not content:
         return
     identity = {"id": str(row["identity_id"]), "phone": str(row.get("phone") or "")}
+    if _bot_voice_reply(event, row, identity, content):
+        return
     if participant_role == "SYSTEM":
         try:
             system_payload = _system_whatsapp_payload(content)
@@ -1949,6 +2013,13 @@ def _dispatch(payload: dict[str, Any]) -> None:
     if os.environ.get('VOICE_BASELINE_MODULE') == 'production_baseline':
         import production_baseline
         source = payload.get('source')
+        if source == 'connect_ordered' and os.environ.get('WHATSAPP_BOT_VOICE_ENABLED') == 'true':
+            event = (payload.get('notification') or {}).get('Message') or {}
+            if isinstance(event, str):
+                event = json.loads(event)
+            row = _history_row_for_contact(str(event.get('InitialContactId') or event.get('ContactId') or ''))
+            if row and _voice_single_turn_enabled({'id':str(row.get('identity_id') or ''), 'phone':str(row.get('phone') or '')}):
+                return _dispatch_candidate(payload)
         if source == 'meta':
             for entry in (payload.get('body') or {}).get('entry') or []:
                 for wrapper in entry.get('changes') or []:

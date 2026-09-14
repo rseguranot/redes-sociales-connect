@@ -112,8 +112,8 @@ The earlier unanswered message remains unproven at root cause: the sampled
 error or throttle signatures. Do not claim the new fallback proves that incident
 fixed. Fresh voice-message E2E, transient typing UI, range constraints (such as
 greater-than screen sizes), and exhaustive business flows remain additional QA.
-No TTS response, voice-channel migration, or Agentic CX Designer migration was
-enabled by this trial.
+At that stage, no TTS response, voice-channel migration, or Agentic CX Designer
+migration had been enabled. The later scoped TTS release is documented below.
 
 ## Explicit close regression (follow-up)
 
@@ -130,3 +130,42 @@ set with unchanged dependent physical identifiers. Stack `UPDATE_COMPLETE`;
 110 unit tests plus 9 subtests passed. Real WhatsApp `finalizar` produced one
 farewell without a menu; Connect `DescribeContact` confirmed a disconnect timestamp
 and no connected agent. The tester session was left closed for the user's next test.
+
+## Pedro voice replies and branch presentation (follow-up)
+
+The existing private identity trial now supports bot voice replies with Amazon
+Polly `Pedro`, `es-US`, neural, `ogg_opus` at 48 kHz. The processor uploads the
+audio to Meta and sends it as a voice note. Only SYSTEM messages and the existing
+trusted trial identities qualify; agents and nontrial customers retain the baseline.
+No voice-telephony flow, shared business hook, or Delta resources were changed.
+
+The adapter refreshes trusted input-source attributes before interpreting a turn.
+Voice input selects audio, ordinary text selects text, and explicit requests for
+text/audio persist as an override for the session. Interactive replies retain their
+native buttons/list alongside the audio; ordinary spoken replies replace the text
+delivery. Readable bot text remains in history for agents. Formatting marks and
+technical links are removed from speech, not from the recorded answer.
+
+Generation failures and overlong speech fall back to text; delivery errors remain
+retryable. A seven-day delivery record reuses uploaded media across retries and
+skips already-confirmed sends. This is not an exactly-once guarantee across an
+ambiguous Meta acceptance or a post-send state-write failure.
+
+Branch address/hours presentation fixes the observed missing accents, adds headings,
+line breaks, and separate weekday/Sunday bullets. The narrow formatter preserves
+source facts and catalog names; it is not an unrestricted model-based copy editor.
+
+Deployment: `scripts/deploy_bot_voice_trial.py` plus the code-only adapter helper,
+retained immutable backups, reviewed CloudFormation change sets, no resource
+replacements, and both stacks `UPDATE_COMPLETE`. The main template retains five
+pre-existing cfn-lint warnings and no errors; the adapter template has no findings.
+The MediaFunction package intentionally remains unchanged. Disable the feature
+with `WHATSAPP_BOT_VOICE_ENABLED=false` through the same managed deployment workflow.
+
+Validation: 116 tests plus 9 subtests; a real forwarded tester voice note received
+a playable bot voice note in WhatsApp. A new session displayed the corrected branch
+format. Explicit audio returned voice plus native controls, and explicit text was
+honored both for a subsequent text query and a forwarded voice note. The older
+session had already lost its trusted contact binding and did not honor the new
+adapter behavior; it was closed before the fresh-session checks. Do not identify
+such legacy sessions by display name or claim all older sessions were repaired.
