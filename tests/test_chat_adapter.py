@@ -291,3 +291,39 @@ def test_status_internal_note_is_not_customer_copy():
     content = adapter.present("El cliente quiere consultar el estado de su pedido, pero necesito la factura.", {})
     assert "El cliente" not in content
     assert "número de factura" in content
+
+
+def test_claim_replaces_invoice_slots_and_callback():
+    event = turn('Esta es la factura para hacer una reclamación. La nevera no funciona.',
+                 {'bedrock_active_intent': 'consulta', 'consulta_factura': 'pending'})
+    event['sessionState']['intent'] = {'name':'consulta','slots':{'factura':{'value':{'interpretedValue':'bad'}}}}
+    event['requestAttributes'] = {'x-amz-lex:bedrock-agent-search-response':'stale'}
+    result = adapter.prepare(event)
+    assert result['sessionState']['sessionAttributes']['bedrock_active_intent'] == 'reclamaciones'
+    assert result['sessionState']['intent']['slots'] == {}
+    assert not result['requestAttributes']
+
+
+def test_receipt_ocr_confirms_barcode_candidate_not_tax_identifier():
+    event = turn('Transcripción: FACTURA ITBIS e-NCF E310009999999 RNC 00000000000 99990000111122')
+    response = adapter.receipt_context(event)
+    attrs = response['sessionState']['sessionAttributes']
+    assert attrs['chat_receipt_candidate'] == '99990000111122'
+    assert 'código de barras' in response['messages'][0]['content']
+    assert '[opcion] Sí' in response['messages'][0]['content']
+    assert 'consulta_factura' not in attrs
+    confirmation = adapter.receipt_context(turn('Sí', attrs))
+    assert confirmation['sessionState']['sessionAttributes']['chat_receipt_confirmed'] == '99990000111122'
+
+
+def test_receipt_rejects_ambiguous_candidates_and_explains_real_location():
+    response = adapter.receipt_context(turn('Transcripción: FACTURA 99990000111122 99990000111123'))
+    assert 'chat_receipt_candidate' not in response['sessionState']['sessionAttributes']
+    response = adapter.receipt_context(turn('Envíame un modelo del número de factura'))
+    assert 'código de barras' in response['messages'][0]['content']
+    assert 'INV-' not in response['messages'][0]['content']
+
+
+def test_branch_in_complaint_detail_does_not_abandon_complaint():
+    result = adapter.prepare(turn('Ocurrió en la sucursal Herrera', {'bedrock_active_intent':'quejas'}))
+    assert result['sessionState']['sessionAttributes']['bedrock_active_intent'] == 'quejas'

@@ -88,6 +88,20 @@ Parameters:
     Default: ''
     AllowedPattern: '^$|^[0-9, -]+$'
     Description: IDs de números empresariales de Meta habilitados para AI para todos sus clientes.
+  VoiceSingleTurnPhoneNumbers:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[0-9, +()-]+$'
+    Description: Teléfonos Meta explícitos habilitados para entregar sólo la transcripción de notas de voz al bot.
+  VoiceSingleTurnUserIds:
+    Type: String
+    Default: ''
+    Description: Identidades estables Meta exactas habilitadas para la prueba de notas de voz.
+  VoiceBaselineModule:
+    Type: String
+    Default: ''
+    AllowedValues: ['', production_baseline]
+    Description: Módulo de producción preservado en el paquete para prueba por identidad.
   CreateDevelopmentAiContactFlow:
     Type: String
     Default: 'false'
@@ -682,6 +696,9 @@ Resources:
           DEVELOPMENT_PHONE_NUMBERS: !Ref DevelopmentPhoneNumbers
           PRODUCTION_AI_CONTACT_FLOW_ID: !Ref ProductionAiContactFlowId
           PRODUCTION_AI_SENDER_ASSET_IDS: !Ref ProductionAiSenderAssetIds
+          VOICE_SINGLE_TURN_PHONE_NUMBERS: !Ref VoiceSingleTurnPhoneNumbers
+          VOICE_SINGLE_TURN_USER_IDS: !Ref VoiceSingleTurnUserIds
+          VOICE_BASELINE_MODULE: !Ref VoiceBaselineModule
           CONTACT_HISTORY_DAYS: !Ref ContactHistoryDays
           AGENT_MESSAGE_SIGNATURE: !Ref AgentMessageSignature
           DEVELOPMENT_SENDER_ASSET_IDS: !Ref DevelopmentSenderAssetIds
@@ -704,6 +721,7 @@ Resources:
           TRANSCRIBE_DATA_ROLE_ARN: !GetAtt TranscribeDataRole.Arn
           METRICS_NAMESPACE: !Sub '${ProjectName}/${Environment}/Messaging'
       Policies:
+        - S3ReadPolicy: {BucketName: !Ref MediaBucket}
         - DynamoDBCrudPolicy: {TableName: !Ref StateTable}
         - AWSSecretsManagerGetSecretValuePolicy: {SecretArn: !Ref WhatsAppSecretArn}
         - SQSSendMessagePolicy: {QueueName: !GetAtt ConversationQueue.QueueName}
@@ -801,6 +819,9 @@ Resources:
       Environment:
         Variables:
           WORKER_MODE: media
+          VOICE_SINGLE_TURN_PHONE_NUMBERS: !Ref VoiceSingleTurnPhoneNumbers
+          VOICE_SINGLE_TURN_USER_IDS: !Ref VoiceSingleTurnUserIds
+          VOICE_BASELINE_MODULE: !Ref VoiceBaselineModule
           STATE_TABLE: !Ref StateTable
           WHATSAPP_SECRET_ARN: !Ref WhatsAppSecretArn
           MEDIA_BUCKET: !Ref MediaBucket

@@ -397,10 +397,12 @@ class ParserTests(unittest.TestCase):
 
         self.assertEqual(queued[0][0]["source"], "transcribed_audio")
         self.assertEqual(queued[0][0]["transcript"], "Quiero hablar con un agente")
-        self.assertEqual(queued[0][0]["agent_attachment"]["s3_key"], "")
+        self.assertEqual(queued[0][0]["agent_attachment"], {})
+        self.assertFalse(queued[0][0]['voice_single_turn'])
         self.assertEqual(queued[0][1], "US.123")
 
     def test_audio_placeholder_is_not_sent_to_connect_or_history(self):
+        from unittest.mock import patch
         queued, updates = [], []
         originals = (processor.ddb, processor._claim, processor._reserve_media_link,
                      processor._enqueue_media, processor._session, processor._history_message,
@@ -418,12 +420,14 @@ class ParserTests(unittest.TestCase):
         processor._history_message = lambda *_args, **_kwargs: self.fail("audio placeholder entered history")
         processor._metric = lambda *_args, **_kwargs: None
         try:
-            processor._meta_event({"entry": [{"id": "business", "changes": [{"value": {
-                "metadata": {"phone_number_id": "asset"},
-                "contacts": [{"user_id": "US.123", "profile": {"name": "Cliente"}}],
-                "messages": [{"id": "wamid.voice", "from_user_id": "US.123", "timestamp": "1787569812",
-                              "type": "audio", "audio": {"id": "media", "mime_type": "audio/ogg"}}],
-            }}]}]})
+            with patch.dict(os.environ, {"VOICE_SINGLE_TURN_PHONE_NUMBERS": "15555550100"}):
+                processor._meta_event({"entry": [{"id": "business", "changes": [{"value": {
+                    "metadata": {"phone_number_id": "asset"},
+                    "contacts": [{"user_id": "US.123", "wa_id": "15555550100", "profile": {"name": "Cliente"}}],
+                    "messages": [{"id": "wamid.voice", "from_user_id": "US.123", "from": "15555550100",
+                                  "timestamp": "1787569812", "type": "audio",
+                                  "audio": {"id": "media", "mime_type": "audio/ogg"}}],
+                }}]}]})
         finally:
             (processor.ddb, processor._claim, processor._reserve_media_link,
              processor._enqueue_media, processor._session, processor._history_message,
@@ -442,6 +446,7 @@ class ParserTests(unittest.TestCase):
             processor._transcribed_audio_event({
                 "transcription_job": "wa-voice",
                 "transcript": "Necesito el estatus de mi pedido",
+                "voice_single_turn": True,
                 "canonical": {
                     "business_id": "business", "sender_asset_id": "asset",
                     "customer": {"id": "US.123", "phone": "", "user_id": "US.123",
@@ -459,6 +464,34 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(value["messages"][0]["from_user_id"], "US.123")
         self.assertNotIn("from", value["messages"][0])
         self.assertEqual(value["contacts"][0]["user_id"], "US.123")
+
+    def test_voice_single_turn_allowlist_requires_meta_phone(self):
+        from unittest.mock import patch
+        with patch.dict(os.environ, {"VOICE_SINGLE_TURN_PHONE_NUMBERS": "+1 555-555-0100"}):
+            self.assertTrue(processor._voice_single_turn_enabled({"phone": "15555550100", "username": "cliente"}))
+            self.assertFalse(processor._voice_single_turn_enabled({"phone": "", "id": "15555550100", "username": "15555550100"}))
+            self.assertFalse(processor._voice_single_turn_enabled({"phone": "15555550101"}))
+
+    def test_voice_single_turn_can_match_bsuid_without_phone(self):
+        from unittest.mock import patch
+        with patch.dict(os.environ, {'VOICE_SINGLE_TURN_PHONE_NUMBERS': '', 'VOICE_SINGLE_TURN_USER_IDS': 'US.QA1,US.QA2'}):
+            self.assertTrue(processor._voice_single_turn_enabled({'id': 'US.QA1', 'phone': ''}))
+            self.assertFalse(processor._voice_single_turn_enabled({'id': 'US.QA3', 'username': 'US.QA1', 'phone': ''}))
+
+    def test_mixed_webhook_routes_only_exact_test_identity_to_candidate(self):
+        from unittest.mock import patch, Mock
+        stable = Mock()
+        body = {'entry':[{'id':'business','changes':[{'value':{'messages':[
+            {'id':'qa','from_user_id':'US.QA1','type':'text','text':{'body':'hola'}},
+            {'id':'customer','from_user_id':'US.OTHER','type':'text','text':{'body':'hola'}}]}}]}]}
+        with patch.dict(sys.modules, {'production_baseline':stable}), patch.dict(os.environ, {
+                'VOICE_BASELINE_MODULE':'production_baseline','VOICE_SINGLE_TURN_USER_IDS':'US.QA1',
+                'VOICE_SINGLE_TURN_PHONE_NUMBERS':''}), patch.object(processor,'_dispatch_candidate') as candidate:
+            processor._dispatch({'source':'meta','body':body})
+        self.assertEqual(candidate.call_count, 1)
+        self.assertEqual(stable._dispatch.call_count, 1)
+        sent = stable._dispatch.call_args.args[0]['body']['entry'][0]['changes'][0]['value']['messages']
+        self.assertEqual([m['id'] for m in sent], ['customer'])
 
     def test_interactive_reply_keeps_route_id(self):
         text, route = processor._content({"type": "interactive", "interactive": {"button_reply": {"id": "cotizar", "title": "Cotizar"}}})

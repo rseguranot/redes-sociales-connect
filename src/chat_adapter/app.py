@@ -134,12 +134,14 @@ def reset_dialogue(attrs):
 def explicit_topic(text):
     """Return one high-confidence new topic, never guess across mixed requests."""
     value = normalized(text)
+    if re.search(r"\b(no quiero|no deseo|no necesito)\b", value):
+        return ""
     patterns = {
         "agent": r"\b(hablar|comunicarme|pasarme)\b.*\b(agente|representante|persona)\b",
         "reclamaciones": r"\b(reclamacion|reclamo|garantia|devolucion|numero de caso)\b",
         "quejas": r"\b(queja|mal servicio|reportar una situacion)\b",
         "consulta": r"\b(estatus|estado)\b.*\b(pedido|orden|factura|entrega)\b|\b(factura|pedido)\s*[0-9]{5,}\b|\bentrega\b.*\b(pedido|orden)\b|\b(pedido|orden)\b.*\bentrega\b",
-        "general": r"\b(horario|sucursal|ubicacion|direccion|donde queda|como llegar)\b",
+        "general": r"\b(horario|ubicacion|donde queda|como llegar)\b|\bdireccion\s+(?:de\s+)?(?:la\s+)?(?:tienda|sucursal|plaza lama)\b|\b(?:consultar|conocer|saber)\b.*\bsucursales\b",
     }
     matches = [topic for topic, pattern in patterns.items() if re.search(pattern, value)]
     return matches[0] if len(matches) == 1 else ""
@@ -265,6 +267,20 @@ def prepare(event):
     new_topic = explicit_topic(text)
     if current_topic and new_topic and new_topic != current_topic:
         reset_dialogue(attrs)
+        # Lex may retain the previously elicited intent/slots. Clear that too.
+        event['sessionState']['intent'] = {'name': 'AmazonQinConnect', 'state': 'InProgress', 'slots': {}}
+        if new_topic == 'general':
+            attrs['routing_mode'] = 'amazon_q'
+            attrs['pregunta_general_detectada'] = 'true'
+        elif new_topic in {'reclamaciones', 'quejas', 'consulta'}:
+            attrs['bedrock_active_intent'] = new_topic
+            attrs['routing_mode'] = 'bedrock_supervisor'
+            attrs['bedrock_supervisor_active'] = 'true'
+            if new_topic == 'reclamaciones':
+                attrs['reclamacion_detectada'] = 'true'
+        event['requestAttributes'] = {key: value for key,value in event.get('requestAttributes',{}).items()
+                                    if key not in {'x-amz-lex:bedrock-agent-search-response',
+                                                   'x-amz-lex:bedrock-agent-action-group-invocation-input'}}
     case_query = re.fullmatch(
         r"(?:no es una factura\.\s*)?(?:(?:quiero|deseo|necesito)\s+)?"
         r"(?:consultar|ver|revisar)\s+(?:(?:mi|el|una)\s+)?"
@@ -303,6 +319,53 @@ def prepare(event):
         attrs["branch_lookup_pending"] = "false"
         attrs["branch_pending_query"] = ""
     return event
+
+
+def receipt_context(event):
+    """Keep OCR documents out of free-form intent selection and confirm identifiers."""
+    attrs = event.setdefault('sessionState', {}).setdefault('sessionAttributes', {})
+    text = event.get('inputTranscript') or event.get('rawInputTranscript') or ''
+    norm = normalized(text)
+    receipt = norm.startswith('transcripcion:') and any(x in norm for x in ('factura', 'e-ncf', 'itbis', 'rnc'))
+    if receipt:
+        candidates = list(dict.fromkeys(re.findall(r'(?<![\w])\d{14}(?![\w])', text)))
+        attrs['chat_receipt_seen'] = 'true'
+        if len(candidates) == 1:
+            attrs['chat_receipt_candidate'] = candidates[0]
+            attrs['chat_receipt_confirm_pending'] = 'true'
+            return chat_reply(event, template(
+                'Recibí la factura. Encontré este posible número: *' + candidates[0] + '*.',
+                '¿Coincide con el número debajo del código de barras?', ['Sí', 'No']))
+        return chat_reply(event, 'Recibí el documento. Para identificar la compra, escribe el número debajo del código de barras.\n\nEl e-NCF y el RNC son datos diferentes. También puedes solicitar un representante.')
+    # A trailing OCR chunk with receipt boilerplate must not become a new intent.
+    if attrs.get('chat_receipt_seen') == 'true' and len(text) > 180 and (
+            'scanned with' in norm or ('empaque original' in norm and 'devolucion' in norm)):
+        state = copy.deepcopy(event['sessionState'])
+        state['dialogAction'] = {'type': 'ElicitIntent'}
+        state.pop('intent', None)
+        return {'sessionState': state}
+    if attrs.get('chat_receipt_confirm_pending') == 'true' and norm in {'si', 'si es correcto', 'correcto', 'no'}:
+        attrs.pop('chat_receipt_confirm_pending', None)
+        if norm == 'no':
+            attrs.pop('chat_receipt_candidate', None)
+            return chat_reply(event, 'Gracias por aclararlo. Escribe el número debajo del código de barras de la factura.')
+        attrs['chat_receipt_confirmed'] = attrs.get('chat_receipt_candidate', '')
+        return chat_reply(event, template('Número de factura confirmado.', '¿Qué necesitas hacer con esta compra?',
+                                          ['Estatus de mi pedido', 'Tengo una reclamación', 'Hablar con un agente']))
+    if ('factura' in norm and re.search(r'\b(ejemplo|modelo|formato|donde|cual)\b', norm)):
+        return chat_reply(event, 'El número de factura está debajo del código de barras, la barra con muchas rayas negras.\n\nCopia ese número exactamente. El e-NCF y el RNC no son el número de factura. Si no lo encuentras, puedo comunicarte con un representante.')
+    if attrs.get('bedrock_active_intent') == 'consulta' and (
+            re.search(r'\b(?:este es (?:el|mi) numero de )?(rnc|cedula|e-ncf)\b', norm)):
+        return chat_reply(event, template('Ese dato corresponde a un documento de identidad o comprobante fiscal; no al número de factura.',
+                                          '¿Deseas consultar una entrega o hacer una reclamación?',
+                                          ['Estatus de mi pedido', 'Tengo una reclamación', 'Hablar con un agente']))
+    confirmed = attrs.get('chat_receipt_confirmed', '')
+    if confirmed and attrs.get('bedrock_active_intent') in {'consulta', 'reclamaciones'}:
+        attrs['consulta_factura'] = confirmed
+        if attrs.get('bedrock_active_intent') == 'reclamaciones':
+            attrs['reclamacion_documento'] = confirmed
+            attrs['reclamacion_tipo_documento'] = 'factura'
+    return None
 
 
 def expired_promotion(text, today=None):
@@ -385,6 +448,9 @@ def adapt(response, event):
     for key in PRODUCT_KEYS + TRANSPORT_KEYS:
         if key in source_attrs:
             attrs[key] = source_attrs[key]
+    for key, value in source_attrs.items():
+        if key.startswith('chat_receipt_'):
+            attrs[key] = value
     action = response["sessionState"].get("dialogAction", {}).get("type")
     for message in response.get("messages", []):
         if message.get("contentType") == "PlainText" and action == "Close":
@@ -392,6 +458,14 @@ def adapt(response, event):
             message["content"] = readable_text(message.get("content", ""))
         if message.get("contentType") == "PlainText" and action != "Close":
             message["content"] = present(message.get("content", ""), attrs)
+            norm = normalized(message['content'])
+            if 'factura' in norm and ('no es valid' in norm or 'no es válida' in norm or 'no es valido' in norm):
+                message['content'] = ('No pude validar ese número de factura. Se encuentra debajo del código de barras; '
+                                      'es diferente del e-NCF y del RNC.\n\nPuedes corregirlo, indicar que deseas una reclamación '
+                                      'o pedir un representante.')
+            if re.search(r'\bINV-\d', message['content'], re.I):
+                message['content'] = ('Busca el número debajo del código de barras de tu factura y cópialo exactamente. '
+                                      'El e-NCF y el RNC son datos diferentes.\n\nSi no lo encuentras, puedo comunicarte con un representante.')
             if source_attrs.get("chat_product_active") == "true":
                 content = message["content"]
                 if "sucursal exacta" in normalized(content):
@@ -405,6 +479,9 @@ def adapt(response, event):
 
 def lambda_handler(event, context):
     prepared = prepare(event)
+    receipt_reply = receipt_context(prepared)
+    if receipt_reply is not None:
+        return persist_context(receipt_reply, event)
     reply = product_context(prepared)
     if reply is not None:
         return persist_context(reply, event)

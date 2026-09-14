@@ -181,6 +181,18 @@ def _normalized_phone(value: str) -> str:
     return re.sub(r"\D", "", str(value or ""))
 
 
+def _voice_single_turn_enabled(identity: dict[str, str]) -> bool:
+    """Exact provider identities; never infer a phone from a name or BSUID."""
+    phone = _normalized_phone(identity.get("phone", ""))
+    allowed = {
+        _normalized_phone(value)
+        for value in os.environ.get("VOICE_SINGLE_TURN_PHONE_NUMBERS", "").split(",")
+        if _normalized_phone(value)
+    }
+    user_ids = {value.strip() for value in os.environ.get("VOICE_SINGLE_TURN_USER_IDS", "").split(",") if value.strip()}
+    return bool((phone and phone in allowed) or (identity.get("id") and identity["id"] in user_ids))
+
+
 def _template_dsl_enabled(phone: str) -> bool:
     """Return whether plain-text templates are enabled for this recipient."""
     mode = os.environ.get("TEMPLATE_DSL_MODE", "disabled").strip().lower()
@@ -751,6 +763,7 @@ def _session(
     attributes: dict[str, str],
     event_id: str,
     initial_content_type: str = "text/plain",
+    defer_initial_message: bool = False,
 ) -> tuple[dict[str, str], bool]:
     key = {"pk": f"IDENTITY#{identity['id']}", "sk": "SESSION"}
     current = ddb.get_item(Key=key, ConsistentRead=True).get("Item")
@@ -784,10 +797,10 @@ def _session(
         ContactFlowId=production_flow_id or development_flow_id or requested_flow_id or os.environ["DEFAULT_CONTACT_FLOW_ID"],
         ParticipantDetails={"DisplayName": _participant_display_name(identity)},
         Attributes={k: v[:32767] for k, v in attributes.items() if v},
-        InitialMessage={
+        **({} if defer_initial_message else {'InitialMessage': {
             "ContentType": initial_content_type,
             "Content": initial_text[:1024] or "Mensaje recibido",
-        },
+        }}),
         SupportedMessagingContentTypes=["text/plain", "text/markdown", "application/vnd.amazonaws.connect.message.interactive"],
         ClientToken=idempotency_token,
     )
@@ -903,7 +916,7 @@ def _send_connect_attachment(session: dict[str, str], attachment: dict[str, str]
         Type=["CONNECTION_CREDENTIALS"], ParticipantToken=session["participant_token"]
     )["ConnectionCredentials"]["ConnectionToken"]
     started = participant.start_attachment_upload(
-        ContentType=str(attachment.get("content_type") or "application/octet-stream"),
+        ContentType=str(attachment.get("content_type") or "application/octet-stream").split(';', 1)[0],
         AttachmentSizeInBytes=len(blob),
         AttachmentName=str(attachment.get("filename") or "audio-whatsapp")[:240],
         ConnectionToken=connection,
@@ -916,7 +929,8 @@ def _send_connect_attachment(session: dict[str, str], attachment: dict[str, str]
     with urllib.request.urlopen(request, timeout=60):
         pass
     participant.complete_attachment_upload(
-        AttachmentIds=[started["AttachmentId"]], ConnectionToken=connection
+        AttachmentIds=[started["AttachmentId"]], ConnectionToken=connection,
+        ClientToken=_stable_id(started['AttachmentId'])
     )
     return True
 
@@ -1318,8 +1332,9 @@ def _meta_event(body: dict[str, Any]) -> None:
                         media_link_token, media_link_url = _reserve_media_link(media_kind)
                         text = _media_link_text(message, media_kind, media_link_url)
                         chat_content_type = "text/markdown"
-                        if media_kind == "audio":
+                        if media_kind == "audio" and _voice_single_turn_enabled(identity):
                             node = message.get("audio") or {}
+                            canonical["message"]["voice_single_turn"] = "true"
                             canonical["message"]["agent_attachment"] = {
                                 "url": media_link_url,
                                 "filename": _attachment_name(
@@ -1393,8 +1408,15 @@ def _meta_event(body: dict[str, Any]) -> None:
                         attributes,
                         message_id,
                         initial_content_type=chat_content_type,
+                        defer_initial_message=canonical['message'].get('input_source') == 'voice',
                     )
-                    if not is_new:
+                    if canonical['message'].get('input_source') == 'voice':
+                        connection = participant.create_participant_connection(
+                            Type=['CONNECTION_CREDENTIALS'], ParticipantToken=session['participant_token']
+                        )['ConnectionCredentials']['ConnectionToken']
+                        participant.send_message(ConnectionToken=connection, ContentType=chat_content_type,
+                            Content=text, ClientToken=_stable_id(message_id))
+                    elif not is_new:
                         _send_connect(session, text, chat_content_type)
                     explicit_delivery = {
                         "social_input_source": canonical["message"].get("input_source"),
@@ -1410,7 +1432,7 @@ def _meta_event(body: dict[str, Any]) -> None:
                         try:
                             _send_connect_attachment(session, attachment)
                         except (ClientError, urllib.error.URLError, KeyError, ValueError):
-                            logger.exception("Could not attach customer audio to Connect; short preview remains available")
+                            logger.warning("Customer audio attachment failed; agent preview retained")
                     if _history_enabled() and canonical["sender_asset_id"]:
                         _history_message({"history_scope": _history_scope(identity["id"], canonical["sender_asset_id"]),
                                           "contact_id": session["contact_id"]},
@@ -1805,12 +1827,15 @@ def _transcribe_event(detail: dict[str, Any]) -> None:
         canonical = dict(item.get("canonical") or {})
         identity = dict(canonical.get("customer") or {})
         if str(item.get("media_type") or "") == "audio" and identity.get("id"):
-            attachment = dict((canonical.get("message") or {}).get("agent_attachment") or {})
-            attachment.update({
-                "s3_key": str(item.get("media_s3_key") or ""),
-                "filename": str(item.get("filename") or attachment.get("filename") or "audio-whatsapp"),
-                "content_type": str(item.get("content_type") or attachment.get("content_type") or "application/octet-stream"),
-            })
+            single_turn = str((canonical.get("message") or {}).get("voice_single_turn") or "") == "true"
+            attachment: dict[str, str] = {}
+            if single_turn:
+                attachment = dict((canonical.get("message") or {}).get("agent_attachment") or {})
+                attachment.update({
+                    "s3_key": str(item.get("media_s3_key") or ""),
+                    "filename": str(item.get("filename") or attachment.get("filename") or "audio-whatsapp"),
+                    "content_type": str(item.get("content_type") or attachment.get("content_type") or "application/octet-stream"),
+                })
             _enqueue_fifo(
                 {
                     "source": "transcribed_audio",
@@ -1818,6 +1843,7 @@ def _transcribe_event(detail: dict[str, Any]) -> None:
                     "transcript": formatted,
                     "transcription_job": job,
                     "agent_attachment": attachment,
+                    "voice_single_turn": single_turn,
                 },
                 str(identity["id"]),
                 f"transcribed-audio:{job}",
@@ -1864,10 +1890,13 @@ def _transcribed_audio_event(payload: dict[str, Any]) -> None:
         "timestamp": str(original.get("timestamp") or int(time.time())),
         "type": "text",
         "text": {"body": transcript},
-        "_social_input_source": "voice",
-        "_social_reply_preference": "audio",
-        "_agent_attachment": dict(payload.get("agent_attachment") or {}),
     }
+    if payload.get("voice_single_turn"):
+        message.update({
+            "_social_input_source": "voice",
+            "_social_reply_preference": "audio",
+            "_agent_attachment": dict(payload.get("agent_attachment") or {}),
+        })
     if identity.get("phone"):
         message["from"] = str(identity["phone"])
     if identity.get("user_id"):
@@ -1890,6 +1919,38 @@ def _transcribed_audio_event(payload: dict[str, Any]) -> None:
 
 
 def _dispatch(payload: dict[str, Any]) -> None:
+    # The release package may contain the exact prior production executable.
+    # Keep normal customers on that executable during an identity-scoped trial.
+    if os.environ.get('VOICE_BASELINE_MODULE') == 'production_baseline':
+        import production_baseline
+        source = payload.get('source')
+        if source == 'meta':
+            for entry in (payload.get('body') or {}).get('entry') or []:
+                for wrapper in entry.get('changes') or []:
+                    value = wrapper.get('value') or {}
+                    if value.get('statuses'):
+                        production_baseline._dispatch({'source':'meta','body':{'entry':[{
+                            **entry,'changes':[{**wrapper,'value':{**value,'messages':[]}}]}]}})
+                    for message in value.get('messages') or []:
+                        single = {'source':'meta','body':{'entry':[{**entry,'changes':[
+                            {**wrapper,'value':{**value,'statuses':[],'messages':[message]}}]}]}}
+                        if _voice_single_turn_enabled(_identity(value, message)):
+                            _dispatch_candidate(single)
+                        else:
+                            production_baseline._dispatch(single)
+            return
+        identity = ((payload.get('canonical') or {}).get('customer') or {})
+        if source == 'aws.transcribe':
+            job = (payload.get('detail') or {}).get('TranscriptionJobName', '')
+            item = ddb.get_item(Key={'pk':'TRANSCRIBE#'+job,'sk':'JOB'}).get('Item',{})
+            identity = (item.get('canonical') or {}).get('customer') or {}
+        if source in {'media','aws.transcribe','transcribed_audio'} and _voice_single_turn_enabled(identity):
+            return _dispatch_candidate(payload)
+        return production_baseline._dispatch(payload)
+    return _dispatch_candidate(payload)
+
+
+def _dispatch_candidate(payload: dict[str, Any]) -> None:
     mode = os.environ.get("WORKER_MODE", "conversation")
     source = payload.get("source")
     if source == "meta" and mode == "conversation":
