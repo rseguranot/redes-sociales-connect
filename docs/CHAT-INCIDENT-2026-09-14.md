@@ -134,14 +134,18 @@ and no connected agent. The tester session was left closed for the user's next t
 ## Pedro voice replies and branch presentation (follow-up)
 
 The existing private identity trial now supports bot voice replies with Amazon
-Polly `Pedro`, `es-US`, neural, `ogg_opus` at 48 kHz. The processor uploads the
+Polly `Pedro`, `es-US`, generative, `ogg_opus` at 48 kHz. The processor uploads the
 audio to Meta and sends it as a voice note. Only SYSTEM messages and the existing
 trusted trial identities qualify; agents and nontrial customers retain the baseline.
 No voice-telephony flow, shared business hook, or Delta resources were changed.
 
 The adapter refreshes trusted input-source attributes before interpreting a turn.
-Voice input selects audio, ordinary text selects text, and explicit requests for
-text/audio persist as an override for the session. Interactive replies retain their
+Voice input selects audio and ordinary text selects text. An explicit request for
+text locks text for the rest of the session, even if a later message requests audio.
+There is no persistent audio override; a text message asking for audio still receives
+text. The processor independently requires trusted voice input and rejects a text
+override before synthesizing, even when an older preference says audio.
+Interactive replies retain their
 native buttons/list alongside the audio; ordinary spoken replies replace the text
 delivery. Readable bot text remains in history for agents. Formatting marks and
 technical links are removed from speech, not from the recorded answer.
@@ -169,3 +173,19 @@ honored both for a subsequent text query and a forwarded voice note. The older
 session had already lost its trusted contact binding and did not honor the new
 adapter behavior; it was closed before the fresh-session checks. Do not identify
 such legacy sessions by display name or claim all older sessions were repaired.
+
+### Generative engine and stricter per-turn policy
+
+The subsequent release replaces neural with generative Pedro (no neural fallback).
+AWS documents the agentic-voice provider through Connect's Set Voice block; that
+block has no effect on chat. This integration therefore uses the user-approved
+Polly generative alternative, not a claim of native Connect agentic audio export.
+References: https://docs.aws.amazon.com/connect/latest/adminguide/agentic-voice-configuration-guide.html
+and https://docs.aws.amazon.com/connect/latest/adminguide/set-voice.html.
+Live `DescribeVoices` and `SynthesizeSpeech` verified Pedro generative OGG/Opus in
+the target region. Explicit clock times are expanded for speech: morning, afternoon,
+night, midnight and noon; unrelated identifiers are preserved. Text formatting
+retains the readable written hours. 119 tests plus 9 subtests cover per-turn mode,
+session text lock, stale audio overrides, generative parameters and clock expansion.
+The previous browser E2E evidence above predates this generative-policy refinement;
+do not present it as a fresh real WhatsApp test of the new engine.

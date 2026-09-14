@@ -42,7 +42,19 @@ def test_voice_preference_and_explicit_text_override():
     adapter.apply_reply_preference(attrs,'Y el horario?')
     assert attrs['social_reply_preference']=='text'
     adapter.apply_reply_preference(attrs,'Respóndeme con audio')
-    assert attrs['social_reply_preference']=='audio'
+    assert attrs['social_reply_preference']=='text'
+
+
+def test_reply_mode_follows_each_turn_never_a_sticky_audio_override():
+    attrs = {'social_input_source':'text', 'social_reply_override':'audio'}
+    adapter.apply_reply_preference(attrs, 'Respóndeme con audio')
+    assert attrs['social_reply_preference'] == 'text'
+    attrs['social_input_source'] = 'voice'
+    adapter.apply_reply_preference(attrs, 'Información de sucursales')
+    assert attrs['social_reply_preference'] == 'audio'
+    attrs['social_input_source'] = 'text'
+    adapter.apply_reply_preference(attrs, 'Y el horario?')
+    assert attrs['social_reply_preference'] == 'text'
 
 
 def test_explicit_close_overrides_catalog_receipt_and_handoff_state():
@@ -271,7 +283,7 @@ def test_ambiguous_multi_topic_phrase_does_not_force_reset():
 
 
 def test_reply_preference_can_switch_between_voice_and_text():
-    voice = adapter.prepare(turn("Respóndeme con una nota de voz", {"social_reply_preference": "text"}))
+    voice = adapter.prepare(turn("Consulta de horario", {"social_input_source": "voice"}))
     assert voice["sessionState"]["sessionAttributes"]["social_reply_preference"] == "audio"
     written = adapter.prepare(turn("Mejor respóndeme por escrito", voice["sessionState"]["sessionAttributes"]))
     assert written["sessionState"]["sessionAttributes"]["social_reply_preference"] == "text"

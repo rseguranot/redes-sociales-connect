@@ -282,12 +282,11 @@ def apply_reply_preference(attrs, text):
     if re.search(r"\b(responde|respondeme|contestame|respuesta)\b.*\b(texto|escrito|escrita)\b|\bno\s+(?:me\s+)?(?:respondas\s+)?(?:con\s+)?audio\b", value):
         attrs["social_reply_preference"] = "text"
         attrs['social_reply_override'] = 'text'
-    elif re.search(r"\b(responde|respondeme|contestame|respuesta)\b.*\b(audio|voz|nota de voz)\b", value):
-        attrs["social_reply_preference"] = "audio"
-        attrs['social_reply_override'] = 'audio'
-    elif attrs.get('social_reply_override') in {'text', 'audio'}:
-        attrs['social_reply_preference'] = attrs['social_reply_override']
+    elif attrs.get('social_reply_override') == 'text':
+        attrs['social_reply_preference'] = 'text'
     else:
+        # A former audio override never survives this per-turn policy.
+        attrs['social_reply_override'] = ''
         attrs['social_reply_preference'] = 'audio' if attrs.get('social_input_source') == 'voice' else 'text'
 
 

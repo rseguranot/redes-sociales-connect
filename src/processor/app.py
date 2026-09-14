@@ -1722,6 +1722,24 @@ def _history_row_for_contact(contact_id: str) -> dict[str, Any] | None:
     return None
 
 
+def _spoken_clock_times(text):
+    """Expand explicit 12-hour clock times without changing identifiers or dates."""
+    hours = ('doce', 'una', 'dos', 'tres', 'cuatro', 'cinco', 'seis',
+             'siete', 'ocho', 'nueve', 'diez', 'once', 'doce')
+    def expand(match):
+        hour, minute = int(match[1]), int(match[2] or 0)
+        if not 1 <= hour <= 12 or minute > 59:
+            return match[0]
+        pm = match[3].lower() == 'p'
+        period = ('del mediodía' if hour == 12 else 'de la tarde' if hour < 6 else 'de la noche') if pm else (
+            'de la madrugada' if hour == 12 or hour < 6 else 'de la mañana')
+        if hour == 12 and minute == 0 and not pm:
+            return 'doce de la medianoche'
+        minutes = '' if not minute else ' y cuarto' if minute == 15 else ' y media' if minute == 30 else f' y {minute}'
+        return hours[hour] + minutes + ' ' + period
+    return re.sub(r'(?<![\d:])\b(\d{1,2})(?::(\d{2}))?\s*([ap])\.?\s*m\b\.?', expand, text, flags=re.I)
+
+
 def _bot_voice_reply(event, row, identity, content):
     """Speak approved bot content for private trial identities; preserve controls."""
     if (os.environ.get('WHATSAPP_BOT_VOICE_ENABLED') != 'true'
@@ -1732,7 +1750,9 @@ def _bot_voice_reply(event, row, identity, content):
     try:
         attrs = connect.get_contact_attributes(InstanceId=os.environ['CONNECT_INSTANCE_ID'],
             InitialContactId=contact_id)['Attributes']
-        if attrs.get('social_reply_preference') != 'audio':
+        if (attrs.get('social_input_source') != 'voice'
+                or attrs.get('social_reply_override') == 'text'
+                or attrs.get('social_reply_preference') != 'audio'):
             return False
         payload = _system_whatsapp_payload(content)
         if payload is None and _is_template_dsl(content):
@@ -1750,7 +1770,7 @@ def _bot_voice_reply(event, row, identity, content):
             speech = content
         speech = re.sub(r'\[([^\]]+)\]\(https?://[^)]+\)', r'\1', speech)
         speech = re.sub(r'https?://\S+', '', speech)
-        speech = re.sub(r'[*_`~]', '', speech).strip()
+        speech = _spoken_clock_times(re.sub(r'[*_`~]', '', speech).strip())
         if not speech or len(speech) > 2900:
             return False  # Never silently truncate a business answer.
         event_id = str(event.get('Id') or _stable_id(content))
@@ -1761,7 +1781,7 @@ def _bot_voice_reply(event, row, identity, content):
         media_id = cached.get('media_id')
         if not media_id:
             response = polly.synthesize_speech(VoiceId='Pedro', LanguageCode='es-US',
-                Engine='neural', OutputFormat='ogg_opus', SampleRate='48000', TextType='text', Text=speech)
+                Engine='generative', OutputFormat='ogg_opus', SampleRate='48000', TextType='text', Text=speech)
             with response['AudioStream'] as stream:
                 blob = stream.read()
             if not blob.startswith(b'OggS') or b'OpusHead' not in blob[:256]:
@@ -1776,7 +1796,7 @@ def _bot_voice_reply(event, row, identity, content):
     _send_whatsapp(identity, {'type':'audio', 'audio':{'id':media_id, 'voice':True}})
     ddb.put_item(Item={**key, 'status':'SENT', 'media_id':media_id,
                        'ttl':int(time.time())+7*86400})
-    _metric('BotVoiceSent', Voice='Pedro')
+    _metric('BotVoiceSent', Voice='Pedro', Engine='generative')
     return not interactive
 
 

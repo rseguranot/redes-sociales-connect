@@ -38,19 +38,36 @@ spec.loader.exec_module(processor)
 
 
 class ParserTests(unittest.TestCase):
+    def test_spoken_clock_times_use_natural_day_periods(self):
+        value = processor._spoken_clock_times('7:00 AM, 3:30 p. m., 10:00 PM, 12:00 AM, 12 PM')
+        self.assertEqual(value, 'siete de la mañana, tres y media de la tarde, diez de la noche, doce de la medianoche, doce del mediodía')
+        self.assertEqual(processor._spoken_clock_times('Modelo 123456, 13:00 PM'), 'Modelo 123456, 13:00 PM')
+
+    def test_voice_delivery_requires_voice_input_even_with_stale_audio_preference(self):
+        from unittest.mock import patch
+        with patch.dict(os.environ, {'WHATSAPP_BOT_VOICE_ENABLED':'true','CONNECT_INSTANCE_ID':'test'}), \
+             patch.object(processor,'_voice_single_turn_enabled',return_value=True), \
+             patch.object(processor.connect,'get_contact_attributes') as attrs, \
+             patch.object(processor.polly,'synthesize_speech') as synth:
+            for source, override in [('text',''),('voice','text'),('','audio')]:
+                attrs.return_value={'Attributes':{'social_input_source':source,'social_reply_override':override,'social_reply_preference':'audio'}}
+                self.assertFalse(processor._bot_voice_reply({'ParticipantRole':'SYSTEM'}, {}, {'id':'test'}, 'Hola'))
+            synth.assert_not_called()
+
     def test_bot_voice_uses_pedro_opus_and_records_sent(self):
         from unittest.mock import patch, MagicMock
         event={'ParticipantRole':'SYSTEM','Id':'reply-test','InitialContactId':'contact-test'}
         table=MagicMock(); table.get_item.return_value={}
         with patch.dict(os.environ,{'WHATSAPP_BOT_VOICE_ENABLED':'true','CONNECT_INSTANCE_ID':'test'}), \
              patch.object(processor,'_voice_single_turn_enabled',return_value=True), \
-             patch.object(processor.connect,'get_contact_attributes',return_value={'Attributes':{'social_reply_preference':'audio'}}), \
+             patch.object(processor.connect,'get_contact_attributes',return_value={'Attributes':{'social_reply_preference':'audio','social_input_source':'voice'}}), \
              patch.object(processor,'ddb',table), \
              patch.object(processor.polly,'synthesize_speech',return_value={'AudioStream':io.BytesIO(b'OggSOpusHead'+b'a'*32)}) as synth, \
              patch.object(processor,'_upload_whatsapp_media',return_value='media-test'), \
              patch.object(processor,'_send_whatsapp') as send, patch.object(processor,'_metric'):
             self.assertTrue(processor._bot_voice_reply(event,{}, {'id':'tester'},'Hola.'))
             self.assertEqual(synth.call_args.kwargs['VoiceId'],'Pedro')
+            self.assertEqual(synth.call_args.kwargs['Engine'],'generative')
             self.assertEqual(synth.call_args.kwargs['OutputFormat'],'ogg_opus')
             self.assertTrue(send.call_args.args[1]['audio']['voice'])
             self.assertEqual(table.put_item.call_args.kwargs['Item']['status'],'SENT')
@@ -70,7 +87,7 @@ class ParserTests(unittest.TestCase):
             attrs.return_value = {'Attributes':{'social_reply_preference':'text'}}
             self.assertFalse(processor._bot_voice_reply(event, {}, {'id':'test'}, 'Hola'))
             synth.assert_not_called()
-            attrs.return_value = {'Attributes':{'social_reply_preference':'audio'}}
+            attrs.return_value = {'Attributes':{'social_reply_preference':'audio','social_input_source':'voice'}}
             processor.ddb.get_item.return_value = {}
             self.assertFalse(processor._bot_voice_reply(event, {}, {'id':'test'}, 'Hola'))
             send.assert_not_called()
@@ -80,7 +97,7 @@ class ParserTests(unittest.TestCase):
         event = {'ParticipantRole':'SYSTEM','Id':'test-menu','ContactId':'test-contact'}
         with patch.dict(os.environ, {'WHATSAPP_BOT_VOICE_ENABLED':'true','CONNECT_INSTANCE_ID':'test'}), \
              patch.object(processor, '_voice_single_turn_enabled', return_value=True), \
-             patch.object(processor.connect, 'get_contact_attributes', return_value={'Attributes':{'social_reply_preference':'audio'}}), \
+             patch.object(processor.connect, 'get_contact_attributes', return_value={'Attributes':{'social_reply_preference':'audio','social_input_source':'voice'}}), \
              patch.object(processor, 'ddb', MagicMock()), \
              patch.object(processor, '_system_whatsapp_payload', return_value={'type':'interactive','interactive':{'body':{'text':'*Hola*'}}}), \
              patch.object(processor.polly, 'synthesize_speech', return_value={'AudioStream':io.BytesIO(b'OggSOpusHead')}) as synth, \
