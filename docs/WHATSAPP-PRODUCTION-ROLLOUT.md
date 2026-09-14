@@ -12,11 +12,14 @@ a partir de los recursos independientes de chat y del flujo de pruebas. Crea
 otro bot Lex, alias, hooks, alarmas y flujo, sin modificar voz ni el bot de pruebas.
 Todos los identificadores operativos se suministran mediante parámetros privados.
 
-El flujo productivo respeta el horario y la cola indicados. No contiene la
-supresión de transferencia personal. Una solicitud explícita de representante
-va al horario/cola aun si falta un atributo opcional de captura. Los errores del
-bot intentan atención humana; los errores de cola se informan sin prometer una
-devolución de llamada que no esté implementada.
+El flujo productivo respeta el horario y la cola indicados. Puede suprimir la
+transferencia únicamente para un ID social estable y dos teléfonos de prueba
+declarados como parámetros privados. Compara cada campo con su origen correcto;
+nunca deriva teléfono desde username o BSUID. Esas identidades reciben un cierre
+de prueba y se desconectan. Para cualquier otro cliente, una solicitud explícita
+de representante va al horario/cola aun si falta un atributo opcional de captura.
+Los errores del bot intentan atención humana; los errores de cola se informan sin
+prometer una devolución de llamada que no esté implementada.
 
 ## Procedimiento de activación
 
