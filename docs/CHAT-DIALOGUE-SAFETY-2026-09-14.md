@@ -1,6 +1,6 @@
 # Chat dialogue and spoken catalog follow-up
 
-Status: implemented locally and validated; production change sets prepared but NOT executed.
+Status: deployed to production after explicit approval on 2026-09-14.
 
 ## Scope
 
@@ -27,7 +27,9 @@ The chat plan may show unchanged Lex association resources with conditional repl
 
 ## Activation and proof boundaries
 
-Do not describe this release as active before the reviewed change sets are executed. Obtain deployment confirmation first. Confirm the source package and stack version have not changed since planning.
+Both reviewed change sets were executed after verifying the original template hashes, candidate packages against committed source, and allowed resource changes. Both stacks finished in `UPDATE_COMPLETE`. All physical resource IDs remained unchanged; downloaded live adapter, processor and media packages match the source. The chat safety flag is enabled. Original flow definitions, permissions and unrelated resources were preserved.
+
+The 151 tests and 9 subtests passed again at deployment time. Five direct invocations of the deployed adapter passed: explicit closure, representative request attributes, silent audio marker, spoken third-option selection and cached option redisplay. These used synthetic inputs without contact binding: they did not create customer contacts, send WhatsApp messages or exercise CRM writes. They do not prove a real queue transfer or end-to-end voice delivery.
 
 Then use only the authorized tester's real WhatsApp session to check:
 
@@ -38,4 +40,4 @@ Then use only the authorized tester's real WhatsApp session to check:
 5. Representative request reaches the existing handoff branch; the private tester exception remains private.
 6. A new reaction does not open a conversation; explicit closure disconnects.
 
-No fresh browser/voice E2E proof exists for this candidate yet. The invoice leading-zero/API coverage issue, all possible media timing races, generalized routing accuracy and agent-side visibility remain separate validation items. Do not reuse customer records as test fixtures or publish their content.
+No fresh browser/voice E2E proof exists for this deployed release yet. The invoice leading-zero/API coverage issue, all possible media timing races, generalized routing accuracy and agent-side visibility remain separate validation items. Do not reuse customer records as test fixtures or publish their content.
