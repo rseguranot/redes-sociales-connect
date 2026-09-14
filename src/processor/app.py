@@ -1077,7 +1077,11 @@ def _organized_transcript_text(transcript: str) -> str:
         return transcript.strip()
 
 
-def _media(message: dict[str, Any], session: dict[str, str]) -> str | None:
+def _media(
+    message: dict[str, Any],
+    session: dict[str, str],
+    canonical: dict[str, Any] | None = None,
+) -> str | None:
     kind = message["type"]
     node = message.get(kind) or {}
     media_id = node.get("id")
@@ -1166,6 +1170,7 @@ def _media(message: dict[str, Any], session: dict[str, str]) -> str | None:
         )
         ddb.put_item(Item={
             "pk": f"TRANSCRIBE#{job}", "sk": "JOB", **session, "media_type": kind, "filename": filename,
+            "canonical": canonical or {},
             "ttl": int(time.time()) + 86400,
         })
     return None
@@ -1683,10 +1688,81 @@ def _transcribe_event(detail: dict[str, Any]) -> None:
                 ":c": len(text), ":u": int(time.time()),
             },
         )
-        _send_connect_if_active(
-            {"contact_id": str(item["contact_id"]), "participant_token": str(item["participant_token"])},
-            _transcription_message(formatted), "text/plain"
-        )
+        canonical = dict(item.get("canonical") or {})
+        identity = dict(canonical.get("customer") or {})
+        if str(item.get("media_type") or "") == "audio" and identity.get("id"):
+            _enqueue_fifo(
+                {
+                    "source": "transcribed_audio",
+                    "canonical": canonical,
+                    "transcript": formatted,
+                    "transcription_job": job,
+                },
+                str(identity["id"]),
+                f"transcribed-audio:{job}",
+            )
+        else:
+            _send_connect_if_active(
+                {"contact_id": str(item["contact_id"]), "participant_token": str(item["participant_token"])},
+                _transcription_message(formatted), "text/plain"
+            )
+
+
+def _transcribed_audio_event(payload: dict[str, Any]) -> None:
+    """Re-enter a completed voice-note transcript as a customer message.
+
+    Using the regular inbound path preserves identity, routing, chat history and
+    session recovery. If the original contact already ended while Transcribe was
+    running, ``_session`` starts a new contact with the transcript as its first
+    utterance so the chat bot can still understand and answer it.
+    """
+    canonical = dict(payload.get("canonical") or {})
+    identity = dict(canonical.get("customer") or {})
+    original = dict(canonical.get("message") or {})
+    transcript = str(payload.get("transcript") or "").strip()
+    if not transcript or not identity.get("id"):
+        return
+
+    original_id = str(original.get("id") or payload.get("transcription_job") or uuid.uuid4())
+    transcript_id = f"{original_id}:transcript"
+    contact: dict[str, Any] = {
+        "profile": {
+            "name": str(identity.get("name") or ""),
+            "username": str(identity.get("username") or ""),
+        },
+    }
+    if identity.get("phone"):
+        contact["wa_id"] = str(identity["phone"])
+    if identity.get("user_id"):
+        contact["user_id"] = str(identity["user_id"])
+    if identity.get("parent_user_id"):
+        contact["parent_user_id"] = str(identity["parent_user_id"])
+
+    message: dict[str, Any] = {
+        "id": transcript_id,
+        "timestamp": str(original.get("timestamp") or int(time.time())),
+        "type": "text",
+        "text": {"body": transcript},
+    }
+    if identity.get("phone"):
+        message["from"] = str(identity["phone"])
+    if identity.get("user_id"):
+        message["from_user_id"] = str(identity["user_id"])
+    if identity.get("parent_user_id"):
+        message["from_parent_user_id"] = str(identity["parent_user_id"])
+
+    _meta_event({
+        "entry": [{
+            "id": str(canonical.get("business_id") or ""),
+            "changes": [{
+                "value": {
+                    "metadata": {"phone_number_id": str(canonical.get("sender_asset_id") or "")},
+                    "contacts": [contact],
+                    "messages": [message],
+                },
+            }],
+        }],
+    })
 
 
 def _dispatch(payload: dict[str, Any]) -> None:
@@ -1698,7 +1774,11 @@ def _dispatch(payload: dict[str, Any]) -> None:
         _admin(str(payload.get("command") or "send"), payload.get("body") or {}, str(payload.get("request_id") or uuid.uuid4()))
         _metric("CampaignMessagesSubmitted", Channel="whatsapp")
     elif source == "media" and mode == "media":
-        transcript = _media(payload.get("message") or {}, payload.get("session") or {})
+        transcript = _media(
+            payload.get("message") or {},
+            payload.get("session") or {},
+            payload.get("canonical") or {},
+        )
         if transcript:
             _send_connect_if_active(payload.get("session") or {}, transcript)
         _metric(
@@ -1708,6 +1788,8 @@ def _dispatch(payload: dict[str, Any]) -> None:
         )
     elif source == "aws.transcribe" and mode == "media":
         _transcribe_event(payload.get("detail") or {})
+    elif source == "transcribed_audio" and mode == "conversation":
+        _transcribed_audio_event(payload)
     elif source == "connect_ordered" and mode == "conversation":
         _connect_event(payload.get("notification") or {})
     elif payload.get("Type") == "Notification" and mode == "conversation":

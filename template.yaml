@@ -809,11 +809,13 @@ Resources:
           MAX_MEDIA_BYTES: '20971520'
           TRANSCRIBE_DATA_ROLE_ARN: !GetAtt TranscribeDataRole.Arn
           TRANSCRIBE_LANGUAGE_CODE: !Ref TranscribeLanguageCode
+          CONVERSATION_QUEUE_URL: !Ref ConversationQueue
           METRICS_NAMESPACE: !Sub '${ProjectName}/${Environment}/Messaging'
       Policies:
         - DynamoDBCrudPolicy: {TableName: !Ref StateTable}
         - S3CrudPolicy: {BucketName: !Ref MediaBucket}
         - AWSSecretsManagerGetSecretValuePolicy: {SecretArn: !Ref WhatsAppSecretArn}
+        - SQSSendMessagePolicy: {QueueName: !GetAtt ConversationQueue.QueueName}
         - Statement:
             - Effect: Allow
               Action: [textract:DetectDocumentText, textract:AnalyzeDocument]

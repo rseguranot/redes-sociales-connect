@@ -356,6 +356,73 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(updates[0]["ExpressionAttributeValues"][":s"], "COMPLETED_NO_SPEECH")
         self.assertEqual(updates[0]["ExpressionAttributeValues"][":c"], 0)
 
+    def test_completed_audio_is_queued_back_to_conversation_worker(self):
+        queued = []
+        originals = processor.ddb, processor.s3, processor._enqueue_fifo, processor.bedrock
+
+        class Table:
+            def get_item(self, **_kwargs):
+                return {"Item": {
+                    "contact_id": "contact", "participant_token": "token", "media_type": "audio",
+                    "filename": "voice.ogg", "canonical": {
+                        "business_id": "business", "sender_asset_id": "asset",
+                        "customer": {"id": "US.123", "phone": "", "user_id": "US.123",
+                                     "parent_user_id": "", "username": "cliente", "name": "Cliente"},
+                        "message": {"id": "wamid.voice", "timestamp": "1787569812"},
+                    },
+                }}
+
+            def update_item(self, **_kwargs):
+                return None
+
+        class S3:
+            def get_object(self, **_kwargs):
+                body = {"results": {"transcripts": [{"transcript": "Quiero hablar con un agente"}]}}
+                return {"Body": io.BytesIO(json.dumps(body).encode())}
+
+            def put_object(self, **_kwargs):
+                return None
+
+        class Bedrock:
+            def converse(self, **_kwargs):
+                return {"output": {"message": {"content": [{"text": '{"paragraphs":[[0]]}'}]}}}
+
+        processor.ddb, processor.s3, processor.bedrock = Table(), S3(), Bedrock()
+        processor._enqueue_fifo = lambda payload, group, dedup: queued.append((payload, group, dedup))
+        os.environ.update({"MEDIA_BUCKET": "test-bucket", "KMS_KEY_ARN": "test-key"})
+        try:
+            processor._transcribe_event({"TranscriptionJobName": "wa-voice", "TranscriptionJobStatus": "COMPLETED"})
+        finally:
+            processor.ddb, processor.s3, processor._enqueue_fifo, processor.bedrock = originals
+
+        self.assertEqual(queued[0][0]["source"], "transcribed_audio")
+        self.assertEqual(queued[0][0]["transcript"], "Quiero hablar con un agente")
+        self.assertEqual(queued[0][1], "US.123")
+
+    def test_transcribed_audio_reuses_regular_meta_inbound_path(self):
+        received = []
+        original_meta = processor._meta_event
+        processor._meta_event = lambda body: received.append(body)
+        try:
+            processor._transcribed_audio_event({
+                "transcription_job": "wa-voice",
+                "transcript": "Necesito el estatus de mi pedido",
+                "canonical": {
+                    "business_id": "business", "sender_asset_id": "asset",
+                    "customer": {"id": "US.123", "phone": "", "user_id": "US.123",
+                                 "parent_user_id": "", "username": "cliente", "name": "Cliente"},
+                    "message": {"id": "wamid.voice", "timestamp": "1787569812"},
+                },
+            })
+        finally:
+            processor._meta_event = original_meta
+
+        value = received[0]["entry"][0]["changes"][0]["value"]
+        self.assertEqual(value["messages"][0]["text"]["body"], "Necesito el estatus de mi pedido")
+        self.assertEqual(value["messages"][0]["from_user_id"], "US.123")
+        self.assertNotIn("from", value["messages"][0])
+        self.assertEqual(value["contacts"][0]["user_id"], "US.123")
+
     def test_interactive_reply_keeps_route_id(self):
         text, route = processor._content({"type": "interactive", "interactive": {"button_reply": {"id": "cotizar", "title": "Cotizar"}}})
         self.assertEqual((text, route), ("Cotizar", "cotizar"))
@@ -523,7 +590,7 @@ class ParserTests(unittest.TestCase):
     def test_media_worker_processes_media_task(self):
         calls = []
         original_media, original_send, original_metric = processor._media, processor._send_connect, processor._metric
-        processor._media = lambda message, session: "Transcripción lista"
+        processor._media = lambda message, session, canonical=None: "Transcripción lista"
         processor._send_connect = lambda session, text, _content_type="text/plain": calls.append((session, text))
         processor._metric = lambda *_a, **_k: None
         os.environ["WORKER_MODE"] = "media"

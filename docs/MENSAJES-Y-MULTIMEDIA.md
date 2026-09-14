@@ -62,7 +62,9 @@ La IA no corrige ortografía, no traduce, no resume y no inventa palabras. La im
 2. La Lambda inicia un trabajo Amazon Transcribe con idioma fijo o detección automática.
 3. EventBridge envía `COMPLETED`/`FAILED` a la cola multimedia.
 4. Si existe voz, Bedrock puede agrupar segmentos en párrafos sin cambiar palabras.
-5. Connect recibe únicamente:
+5. Para una nota de voz, la transcripción vuelve a la cola FIFO de conversaciones con la misma identidad canónica del cliente.
+6. El procesador la entrega como una intervención de texto del cliente, por lo que el bot puede comprenderla y responder. Si el contacto original terminó durante el procesamiento, se abre otro contacto con la transcripción como mensaje inicial.
+7. Para video, Connect recibe la transcripción como información adicional:
 
 ```text
 Transcripción:
@@ -70,7 +72,7 @@ Transcripción:
 Contenido reconocido por Amazon Transcribe.
 ```
 
-Si no se detecta voz, no se envía texto vacío ni caracteres sin sentido; el trabajo queda auditado como completado sin voz. Si la sesión de Connect ya terminó, el archivo procesado se conserva, pero el resultado no puede insertarse en un chat cerrado.
+Si no se detecta voz, no se envía texto vacío ni caracteres sin sentido; el trabajo queda auditado como completado sin voz. En notas de voz, la recuperación de sesión evita perder una solicitud válida sólo porque la transcripción terminó después que el contacto original.
 
 Para operaciones multilingües use detección automática solo después de probar los idiomas reales. Un idioma fijo suele reducir latencia y ambigüedad.
 
