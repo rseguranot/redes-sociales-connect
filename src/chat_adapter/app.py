@@ -265,7 +265,7 @@ def prepare(event):
     apply_reply_preference(attrs, text)
     current_topic = attrs.get("bedrock_active_intent") or attrs.get("pending_product_clarification") or ""
     new_topic = explicit_topic(text)
-    if current_topic and new_topic and new_topic != current_topic:
+    if new_topic and new_topic != current_topic:
         reset_dialogue(attrs)
         # Lex may retain the previously elicited intent/slots. Clear that too.
         event['sessionState']['intent'] = {'name': 'AmazonQinConnect', 'state': 'InProgress', 'slots': {}}

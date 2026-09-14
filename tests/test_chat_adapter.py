@@ -21,6 +21,18 @@ def test_yes_without_pending_question_is_not_reinterpreted():
     assert adapter.prepare(event)["inputTranscript"] == "sí"
 
 
+def test_status_after_authored_invoice_help_discards_stale_lex_handoff():
+    event = {"inputTranscript": "Quiero consultar el estatus de mi pedido", "sessionState": {
+        "intent": {"name": "Escalate", "state": "Fulfilled", "slots": {}},
+        "sessionAttributes": {"last_agent_response": "El número está debajo del código de barras.",
+                              "agente": "true"}}}
+    prepared = adapter.prepare(event)
+    attrs = prepared['sessionState']['sessionAttributes']
+    assert prepared['sessionState']['intent']['name'] == 'AmazonQinConnect'
+    assert attrs['bedrock_active_intent'] == 'consulta'
+    assert 'last_agent_response' not in attrs and 'agente' not in attrs
+
+
 def test_menu_clears_service_context_but_preserves_connect_identity():
     attrs = {"bedrock_active_intent": "quejas", "nombre_cliente": "Test",
              "pending_product_clarification": "quejas", "routing_mode": "bedrock_supervisor",
