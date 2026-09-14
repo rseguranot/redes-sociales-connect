@@ -49,6 +49,10 @@ Unit suites: processor 56 tests plus 9 subtests; adapter 41 tests; frontend 24 t
 Frontend production build and SAM validation passed. Live Lambda/Lex checks passed
 for invoice guidance, synthetic OCR confirmation, and status-to-location routing.
 Real WhatsApp confirmed the native menu and the barcode-number explanation.
+After the final fix, real WhatsApp also confirmed that status requests ask for
+the invoice without closing, and a following location query returns the branch
+address rather than insisting on an invoice. The tester-only no-transfer closure
+was observed. No real case was created by these smoke tests.
 
 ## Remaining proof boundaries
 
