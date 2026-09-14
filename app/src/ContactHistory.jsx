@@ -37,6 +37,11 @@ export function ContactHistory({ contact }) {
       <span>{open ? "Ocultar" : "Ver últimos 7 días"}</span>
     </button>
     {open && <div className="history-body">
+      {contact.audioUrl && <aside className="audio-context">
+        <strong>Última nota de voz del cliente</strong>
+        <span>{contact.audioFilename || "Audio de WhatsApp"}</span>
+        <a href={contact.audioUrl} target="_blank" rel="noreferrer">Escuchar audio</a>
+      </aside>}
       {collected.length > 0 && <><h3>Datos recopilados</h3><p>Información declarada en la conversación; no acredita identidad.</p><dl>{collected.map(([key, value]) => <div key={key}><dt>{collectedLabels[key]}</dt><dd>{value}</dd></div>)}</dl></>}
       <h3>Conversaciones de los últimos 7 días</h3>
       <p>Más recientes primero. Se incluyen mensajes capturados desde la activación del historial. Los adjuntos originales permanecen en Connect.</p>

@@ -4,12 +4,15 @@ import { normalizeContact, SOCIAL_CONTACT_ATTRIBUTES } from "../src/contactNorma
 import { historyText } from "../src/historyText.js";
 
 test("history capability and declared identity never replace Meta identity", () => {
-  const contact = normalizeContact("qa", {social_display_name:"Meta QA", social_collected_name:"Declarado QA", social_collected_phone:"not-verified", social_history_token:"qa-token"});
+  const contact = normalizeContact("qa", {social_display_name:"Meta QA", social_collected_name:"Declarado QA", social_collected_phone:"not-verified", social_history_token:"qa-token", social_input_source:"voice", social_reply_preference:"audio", social_audio_url:"https://media.example/audio", social_audio_filename:"voice.ogg"});
   assert.equal(contact.name, "Meta QA");
   assert.equal(contact.phone, "");
   assert.equal(contact.historyToken, "qa-token");
   assert.equal(contact.collected.social_collected_name, "Declarado QA");
   assert.equal(contact.collected.social_history_token, undefined);
+  assert.equal(contact.inputSource, "voice");
+  assert.equal(contact.replyPreference, "audio");
+  assert.equal(contact.audioFilename, "voice.ogg");
 });
 
 test("history presents DSL without executing HTML", () => {

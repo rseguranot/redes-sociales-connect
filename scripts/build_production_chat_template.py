@@ -72,7 +72,9 @@ def build():
     actions["AiBot"]["Parameters"]["LexV2Bot"]["AliasArn"] = "${ChatAlias.Arn}"
     actions["AiBot"]["Parameters"]["LexSessionAttributes"] = {
         "x-amz-lex:q-in-connect:ai-agent-arn": "${AiAgentArn}",
-        "social_connect_contact_id": "$.ContactId"}
+        "social_connect_contact_id": "$.ContactId",
+        "social_input_source": "$.Attributes.social_input_source",
+        "social_reply_preference": "$.Attributes.social_reply_preference"}
     menu = json.loads(actions["AiBot"]["Parameters"]["Text"])
     menu["whatsapp_outbound"]["interactive"]["body"]["text"] = (
         "Gracias por comunicarse con Plaza Lama, la Súper Tienda. "

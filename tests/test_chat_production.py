@@ -31,6 +31,8 @@ def test_all_transitions_resolve_and_test_suppression_is_scoped():
     assert actions["MarkHandoff"]["Transitions"]["NextAction"] == "TransferToQueue"
     assert actions["CheckHandoff"]["Parameters"]["ComparisonValue"] == "$.Lex.SessionAttributes.agente"
     assert actions["AiBot"]["Parameters"]["LexSessionAttributes"]["social_connect_contact_id"] == "$.ContactId"
+    assert actions["AiBot"]["Parameters"]["LexSessionAttributes"]["social_input_source"] == "$.Attributes.social_input_source"
+    assert actions["AiBot"]["Parameters"]["LexSessionAttributes"]["social_reply_preference"] == "$.Attributes.social_reply_preference"
     assert actions["CheckNoTransferIdentity"]["Parameters"]["ComparisonValue"] == "$.Attributes.social_user_id"
     assert actions["CheckNoTransferPhone1"]["Parameters"]["ComparisonValue"] == "$.Attributes.social_phone"
     assert actions["CheckNoTransferPhone2"]["Parameters"]["ComparisonValue"] == "$.Attributes.social_phone"

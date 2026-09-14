@@ -58,13 +58,15 @@ La IA no corrige ortografía, no traduce, no resume y no inventa palabras. La im
 
 ## Audio y video
 
-1. El archivo se guarda y el enlace queda disponible antes de completar la transcripción.
+1. El archivo se guarda y se prepara un enlace temporal para la vista del agente, pero no se crea un mensaje de texto marcador para el bot.
 2. La Lambda inicia un trabajo Amazon Transcribe con idioma fijo o detección automática.
 3. EventBridge envía `COMPLETED`/`FAILED` a la cola multimedia.
 4. Si existe voz, Bedrock puede agrupar segmentos en párrafos sin cambiar palabras.
 5. Para una nota de voz, la transcripción vuelve a la cola FIFO de conversaciones con la misma identidad canónica del cliente.
-6. El procesador la entrega como una intervención de texto del cliente, por lo que el bot puede comprenderla y responder. Si el contacto original terminó durante el procesamiento, se abre otro contacto con la transcripción como mensaje inicial.
-7. Para video, Connect recibe la transcripción como información adicional:
+6. El procesador entrega únicamente la transcripción como intervención de texto del cliente. El binario se adjunta por separado a Connect y queda disponible para el agente; no se envía al motor conversacional como `Audio enviado por el cliente`.
+7. El contacto recibe `social_input_source=voice` y `social_reply_preference=audio`. La preferencia puede cambiar a `text` si el cliente lo pide expresamente. Estos atributos preparan una futura salida de voz; no sintetizan audio por sí solos.
+8. Si el contacto original terminó durante el procesamiento, se abre otro contacto con la transcripción como mensaje inicial.
+9. Para video, Connect recibe la transcripción como información adicional:
 
 ```text
 Transcripción:
@@ -78,7 +80,7 @@ Para operaciones multilingües use detección automática solo después de proba
 
 ## Latencia
 
-El enlace del archivo y la transcripción son eventos separados. Textract, Transcribe y Bedrock son asíncronos o variables; no prometa que llegarán juntos. La separación mantiene el chat disponible y evita que Meta reintente el webhook por esperar IA.
+El almacenamiento del archivo y la transcripción son asíncronos. En una nota de voz no se abre ni alimenta el diálogo hasta disponer de la transcripción final, evitando dos intervenciones del cliente y estado conversacional contaminado. Textract, Transcribe y Bedrock siguen sin bloquear el webhook de Meta.
 
 Para mejorar tiempo sin perder exactitud:
 

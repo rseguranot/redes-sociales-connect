@@ -56,6 +56,9 @@ def collected_context(response, event):
     result["social_handoff_requested"] = str(
         attrs.get("agente") == "true" or attrs.get("routing_mode") == "agent_transfer").lower()
     result["social_context_version"] = "1"
+    for key in TRANSPORT_KEYS:
+        if attrs.get(key):
+            result[key] = str(attrs[key])[:32]
     return result
 
 
@@ -97,6 +100,7 @@ def template(body, question, options):
 
 PRODUCT_KEYS = ("chat_product_active", "chat_product_brand", "chat_product_size",
                 "chat_product_branch", "chat_product_model", "chat_product_technology")
+TRANSPORT_KEYS = ("social_input_source", "social_reply_preference")
 BRANCH_NAMES = {"27 de febrero": "27 de Febrero", "herrera": "Herrera",
                 "la romana": "La Romana", "duarte": "Duarte",
                 "santiago": "Santiago", "bavaro": "Bávaro",
@@ -125,6 +129,28 @@ def reset_dialogue(attrs):
     # Reusing the Lex session ID would resurrect the previous Bedrock dialogue.
     attrs["bedrock_supervisor_session_id"] = "chat-topic-" + uuid.uuid4().hex
     attrs["menu_pending"] = "false"
+
+
+def explicit_topic(text):
+    """Return one high-confidence new topic, never guess across mixed requests."""
+    value = normalized(text)
+    patterns = {
+        "agent": r"\b(hablar|comunicarme|pasarme)\b.*\b(agente|representante|persona)\b",
+        "reclamaciones": r"\b(reclamacion|reclamo|garantia|devolucion|numero de caso)\b",
+        "quejas": r"\b(queja|mal servicio|reportar una situacion)\b",
+        "consulta": r"\b(estatus|estado)\b.*\b(pedido|orden|factura|entrega)\b|\b(factura|pedido)\s*[0-9]{5,}\b|\bentrega\b.*\b(pedido|orden)\b|\b(pedido|orden)\b.*\bentrega\b",
+        "general": r"\b(horario|sucursal|ubicacion|direccion|donde queda|como llegar)\b",
+    }
+    matches = [topic for topic, pattern in patterns.items() if re.search(pattern, value)]
+    return matches[0] if len(matches) == 1 else ""
+
+
+def apply_reply_preference(attrs, text):
+    value = normalized(text)
+    if re.search(r"\b(responde|respondeme|contestame|respuesta)\b.*\b(texto|escrito|escrita)\b|\bno\s+(?:me\s+)?(?:respondas\s+)?(?:con\s+)?audio\b", value):
+        attrs["social_reply_preference"] = "text"
+    elif re.search(r"\b(responde|respondeme|contestame|respuesta)\b.*\b(audio|voz|nota de voz)\b", value):
+        attrs["social_reply_preference"] = "audio"
 
 
 def chat_reply(event, text):
@@ -234,6 +260,11 @@ def prepare(event):
     event = copy.deepcopy(event)
     attrs = event.setdefault("sessionState", {}).setdefault("sessionAttributes", {})
     text = event.get("inputTranscript") or event.get("rawInputTranscript") or ""
+    apply_reply_preference(attrs, text)
+    current_topic = attrs.get("bedrock_active_intent") or attrs.get("pending_product_clarification") or ""
+    new_topic = explicit_topic(text)
+    if current_topic and new_topic and new_topic != current_topic:
+        reset_dialogue(attrs)
     case_query = re.fullmatch(
         r"(?:no es una factura\.\s*)?(?:(?:quiero|deseo|necesito)\s+)?"
         r"(?:consultar|ver|revisar)\s+(?:(?:mi|el|una)\s+)?"
@@ -351,7 +382,7 @@ def present(text, attrs):
 def adapt(response, event):
     attrs = response.setdefault("sessionState", {}).setdefault("sessionAttributes", {})
     source_attrs = event.get("sessionState", {}).get("sessionAttributes", {})
-    for key in PRODUCT_KEYS:
+    for key in PRODUCT_KEYS + TRANSPORT_KEYS:
         if key in source_attrs:
             attrs[key] = source_attrs[key]
     action = response["sessionState"].get("dialogAction", {}).get("type")

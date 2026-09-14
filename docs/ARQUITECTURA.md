@@ -12,7 +12,7 @@ La plataforma traduce eventos sociales a un contrato interno estable y los entre
 4. La Lambda procesador normaliza el evento a `social-message/1.0`, reclama el ID para idempotencia y recupera o crea la sesión de chat.
 5. `StartChatContact` entrega el primer contenido y los atributos normalizados al contact flow. Para una sesión existente usa la conexión de participante.
 6. El contact flow inicial invoca el módulo de contexto, selecciona la cola y transfiere el contacto al agente.
-7. Si hay multimedia, el mensaje visible se entrega primero y el trabajo pesado se procesa en una cola separada.
+7. La multimedia se procesa en una cola separada. Imágenes, documentos y video conservan su presentación existente; una nota de voz espera la transcripción y entrega al bot una sola intervención textual, mientras el audio se adjunta aparte para el agente.
 
 ## Recorrido agente → cliente
 

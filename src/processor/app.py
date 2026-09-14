@@ -736,6 +736,11 @@ def _canonical_envelope(change: dict[str, Any], message: dict[str, Any]) -> dict
             "timestamp": str(message.get("timestamp") or ""),
             "media": media,
             "flow_response": _flow_reply(message) or {},
+            # Internal fields are added only by the trusted transcription worker.
+            # They are not inferred from customer-controlled WhatsApp payloads.
+            "input_source": str(message.get("_social_input_source") or ""),
+            "reply_preference": str(message.get("_social_reply_preference") or ""),
+            "agent_attachment": dict(message.get("_agent_attachment") or {}),
         },
     }
 
@@ -871,6 +876,49 @@ def _send_connect_if_active(session: dict[str, str], text: str, content_type: st
                            extra={"contact_id": session.get("contact_id")})
             return False
         raise
+
+
+def _update_contact_attributes(session: dict[str, str], attributes: dict[str, str]) -> None:
+    values = {key: str(value)[:32767] for key, value in attributes.items() if value}
+    if not values or not session.get("contact_id"):
+        return
+    connect.update_contact_attributes(
+        InstanceId=os.environ["CONNECT_INSTANCE_ID"],
+        InitialContactId=session["contact_id"],
+        Attributes=values,
+    )
+
+
+def _send_connect_attachment(session: dict[str, str], attachment: dict[str, str]) -> bool:
+    """Upload agent-visible media without creating a bot text utterance."""
+    key = str(attachment.get("s3_key") or "")
+    if not key:
+        return False
+    obj = s3.get_object(Bucket=os.environ["MEDIA_BUCKET"], Key=key)
+    with obj["Body"] as body:
+        blob = body.read(int(os.environ.get("MAX_MEDIA_BYTES", "20971520")) + 1)
+    if len(blob) > int(os.environ.get("MAX_MEDIA_BYTES", "20971520")):
+        raise ValueError("Media exceeds configured size limit")
+    connection = participant.create_participant_connection(
+        Type=["CONNECTION_CREDENTIALS"], ParticipantToken=session["participant_token"]
+    )["ConnectionCredentials"]["ConnectionToken"]
+    started = participant.start_attachment_upload(
+        ContentType=str(attachment.get("content_type") or "application/octet-stream"),
+        AttachmentSizeInBytes=len(blob),
+        AttachmentName=str(attachment.get("filename") or "audio-whatsapp")[:240],
+        ConnectionToken=connection,
+        ClientToken=str(uuid.uuid4()),
+    )
+    upload = started["UploadMetadata"]
+    request = urllib.request.Request(
+        upload["Url"], data=blob, method="PUT", headers=dict(upload.get("HeadersToInclude") or {})
+    )
+    with urllib.request.urlopen(request, timeout=60):
+        pass
+    participant.complete_attachment_upload(
+        AttachmentIds=[started["AttachmentId"]], ConnectionToken=connection
+    )
+    return True
 
 
 def _attachment_name(message: dict[str, Any], kind: str, content_type: str) -> str:
@@ -1170,7 +1218,7 @@ def _media(
         )
         ddb.put_item(Item={
             "pk": f"TRANSCRIBE#{job}", "sk": "JOB", **session, "media_type": kind, "filename": filename,
-            "canonical": canonical or {},
+            "media_s3_key": key, "content_type": content_type, "canonical": canonical or {},
             "ttl": int(time.time()) + 86400,
         })
     return None
@@ -1270,6 +1318,31 @@ def _meta_event(body: dict[str, Any]) -> None:
                         media_link_token, media_link_url = _reserve_media_link(media_kind)
                         text = _media_link_text(message, media_kind, media_link_url)
                         chat_content_type = "text/markdown"
+                        if media_kind == "audio":
+                            node = message.get("audio") or {}
+                            canonical["message"]["agent_attachment"] = {
+                                "url": media_link_url,
+                                "filename": _attachment_name(
+                                    message, "audio", str(node.get("mime_type") or "application/octet-stream")
+                                ),
+                                "content_type": str(node.get("mime_type") or "application/octet-stream"),
+                            }
+                            # The transcript, not this placeholder, becomes the
+                            # single customer utterance delivered to the bot.
+                            _enqueue_media({
+                                "source": "media",
+                                "canonical": canonical,
+                                "message": {**message, "_media_link_token": media_link_token},
+                                "session": {},
+                            })
+                            ddb.update_item(
+                                Key={"pk": f"MESSAGE#{message_id}", "sk": "EVENT"},
+                                UpdateExpression="SET #s=:s",
+                                ExpressionAttributeNames={"#s": "status"},
+                                ExpressionAttributeValues={":s": "COMPLETED"},
+                            )
+                            _metric("MessagesProcessed", Channel="whatsapp", Direction="inbound", MessageType="audio_deferred")
+                            continue
                     elif media_kind == "text":
                         text, chat_content_type = _connect_text_content(text)
                         canonical["message"]["text"] = text
@@ -1309,6 +1382,10 @@ def _meta_event(body: dict[str, Any]) -> None:
                         "campaign_id": flow_campaign_id or str((route or {}).get("campaign_id") or ""),
                         "button_id": str(reply_id or ""),
                         "target_flow_id": str((route or {}).get("contact_flow_id") or ""),
+                        "social_input_source": str(canonical["message"].get("input_source") or ""),
+                        "social_reply_preference": str(canonical["message"].get("reply_preference") or ""),
+                        "social_audio_url": str((canonical["message"].get("agent_attachment") or {}).get("url") or ""),
+                        "social_audio_filename": str((canonical["message"].get("agent_attachment") or {}).get("filename") or ""),
                     }
                     session, is_new = _session(
                         identity,
@@ -1319,12 +1396,34 @@ def _meta_event(body: dict[str, Any]) -> None:
                     )
                     if not is_new:
                         _send_connect(session, text, chat_content_type)
+                    delivery_attributes = {key: attributes[key] for key in (
+                        "social_input_source", "social_reply_preference", "social_audio_url", "social_audio_filename"
+                    ) if attributes.get(key)}
+                    if delivery_attributes and not is_new:
+                        _update_contact_attributes(session, delivery_attributes)
+                    attachment = canonical["message"].get("agent_attachment") or {}
+                    if attachment:
+                        try:
+                            _send_connect_attachment(session, attachment)
+                        except (ClientError, urllib.error.URLError, KeyError, ValueError):
+                            logger.exception("Could not attach customer audio to Connect; short preview remains available")
                     if _history_enabled() and canonical["sender_asset_id"]:
                         _history_message({"history_scope": _history_scope(identity["id"], canonical["sender_asset_id"]),
                                           "contact_id": session["contact_id"]},
                                          {"Id": message_id, "ParticipantRole": "CUSTOMER", "DisplayName": identity["name"],
                                           "Content": canonical["message"]["text"], "Type": "MESSAGE",
                                           "AbsoluteTime": datetime.fromtimestamp(int(message.get("timestamp") or time.time()), timezone.utc).isoformat()})
+                        if attachment:
+                            _history_message(
+                                {"history_scope": _history_scope(identity["id"], canonical["sender_asset_id"]),
+                                 "contact_id": session["contact_id"]},
+                                {"Id": message_id + ":attachment", "ParticipantRole": "CUSTOMER",
+                                 "DisplayName": identity["name"], "Content": "", "Type": "ATTACHMENT",
+                                 "Attachments": [{"AttachmentName": str(attachment.get("filename") or "audio-whatsapp")}],
+                                 "AbsoluteTime": datetime.fromtimestamp(
+                                     int(message.get("timestamp") or time.time()), timezone.utc
+                                 ).isoformat()},
+                            )
                     if is_media:
                         _enqueue_media({
                             "source": "media",
@@ -1635,6 +1734,19 @@ def _connect_event(notification: dict[str, Any]) -> None:
     _metric("MessagesProcessed", Channel="whatsapp", Direction="outbound", MessageType="text")
 
 
+def _notify_transcription_result(item: dict[str, Any], text: str) -> None:
+    session = {
+        "contact_id": str(item.get("contact_id") or ""),
+        "participant_token": str(item.get("participant_token") or ""),
+    }
+    if all(session.values()):
+        if _send_connect_if_active(session, text):
+            return
+    identity = dict((item.get("canonical") or {}).get("customer") or {})
+    if identity.get("id"):
+        _send_whatsapp(identity, {"type": "text", "text": {"body": text[:4096], "preview_url": False}})
+
+
 def _transcribe_event(detail: dict[str, Any]) -> None:
     job = detail["TranscriptionJobName"]
     item = ddb.get_item(Key={"pk": f"TRANSCRIBE#{job}", "sk": "JOB"}).get("Item")
@@ -1647,9 +1759,8 @@ def _transcribe_event(detail: dict[str, Any]) -> None:
             ExpressionAttributeNames={"#s": "status"},
             ExpressionAttributeValues={":s": "FAILED", ":u": int(time.time())},
         )
-        _send_connect_if_active(
-            {"contact_id": str(item["contact_id"]), "participant_token": str(item["participant_token"])},
-            f"El archivo {item.get('filename') or ''} está disponible en la vista previa, pero no pudo transcribirse automáticamente.",
+        _notify_transcription_result(
+            item, "No pude transcribir la nota de voz. Por favor, envíala nuevamente o escribe tu consulta."
         )
         return
     if detail.get("TranscriptionJobStatus") != "COMPLETED":
@@ -1666,9 +1777,8 @@ def _transcribe_event(detail: dict[str, Any]) -> None:
             ExpressionAttributeNames={"#s": "status"},
             ExpressionAttributeValues={":s": "COMPLETED_NO_SPEECH", ":c": 0, ":u": int(time.time())},
         )
-        _send_connect_if_active(
-            {"contact_id": str(item["contact_id"]), "participant_token": str(item["participant_token"])},
-            f"El {label} {item.get('filename') or ''} se procesó correctamente, pero no contenía voz reconocible.",
+        _notify_transcription_result(
+            item, f"El {label} no contenía voz reconocible. Por favor, envíalo nuevamente o escribe tu consulta."
         )
         return
     if text:
@@ -1691,12 +1801,19 @@ def _transcribe_event(detail: dict[str, Any]) -> None:
         canonical = dict(item.get("canonical") or {})
         identity = dict(canonical.get("customer") or {})
         if str(item.get("media_type") or "") == "audio" and identity.get("id"):
+            attachment = dict((canonical.get("message") or {}).get("agent_attachment") or {})
+            attachment.update({
+                "s3_key": str(item.get("media_s3_key") or ""),
+                "filename": str(item.get("filename") or attachment.get("filename") or "audio-whatsapp"),
+                "content_type": str(item.get("content_type") or attachment.get("content_type") or "application/octet-stream"),
+            })
             _enqueue_fifo(
                 {
                     "source": "transcribed_audio",
                     "canonical": canonical,
                     "transcript": formatted,
                     "transcription_job": job,
+                    "agent_attachment": attachment,
                 },
                 str(identity["id"]),
                 f"transcribed-audio:{job}",
@@ -1743,6 +1860,9 @@ def _transcribed_audio_event(payload: dict[str, Any]) -> None:
         "timestamp": str(original.get("timestamp") or int(time.time())),
         "type": "text",
         "text": {"body": transcript},
+        "_social_input_source": "voice",
+        "_social_reply_preference": "audio",
+        "_agent_attachment": dict(payload.get("agent_attachment") or {}),
     }
     if identity.get("phone"):
         message["from"] = str(identity["phone"])

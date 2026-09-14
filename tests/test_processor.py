@@ -397,7 +397,42 @@ class ParserTests(unittest.TestCase):
 
         self.assertEqual(queued[0][0]["source"], "transcribed_audio")
         self.assertEqual(queued[0][0]["transcript"], "Quiero hablar con un agente")
+        self.assertEqual(queued[0][0]["agent_attachment"]["s3_key"], "")
         self.assertEqual(queued[0][1], "US.123")
+
+    def test_audio_placeholder_is_not_sent_to_connect_or_history(self):
+        queued, updates = [], []
+        originals = (processor.ddb, processor._claim, processor._reserve_media_link,
+                     processor._enqueue_media, processor._session, processor._history_message,
+                     processor._metric)
+
+        class Table:
+            def update_item(self, **kwargs):
+                updates.append(kwargs)
+
+        processor.ddb = Table()
+        processor._claim = lambda _message_id: True
+        processor._reserve_media_link = lambda _kind: ("token", "https://media.test/m/token")
+        processor._enqueue_media = lambda payload: queued.append(payload)
+        processor._session = lambda *_args, **_kwargs: self.fail("audio placeholder opened a bot session")
+        processor._history_message = lambda *_args, **_kwargs: self.fail("audio placeholder entered history")
+        processor._metric = lambda *_args, **_kwargs: None
+        try:
+            processor._meta_event({"entry": [{"id": "business", "changes": [{"value": {
+                "metadata": {"phone_number_id": "asset"},
+                "contacts": [{"user_id": "US.123", "profile": {"name": "Cliente"}}],
+                "messages": [{"id": "wamid.voice", "from_user_id": "US.123", "timestamp": "1787569812",
+                              "type": "audio", "audio": {"id": "media", "mime_type": "audio/ogg"}}],
+            }}]}]})
+        finally:
+            (processor.ddb, processor._claim, processor._reserve_media_link,
+             processor._enqueue_media, processor._session, processor._history_message,
+             processor._metric) = originals
+        self.assertEqual(len(queued), 1)
+        self.assertEqual(queued[0]["session"], {})
+        self.assertEqual(queued[0]["canonical"]["message"]["agent_attachment"]["url"],
+                         "https://media.test/m/token")
+        self.assertEqual(updates[0]["ExpressionAttributeValues"][":s"], "COMPLETED")
 
     def test_transcribed_audio_reuses_regular_meta_inbound_path(self):
         received = []
@@ -419,6 +454,8 @@ class ParserTests(unittest.TestCase):
 
         value = received[0]["entry"][0]["changes"][0]["value"]
         self.assertEqual(value["messages"][0]["text"]["body"], "Necesito el estatus de mi pedido")
+        self.assertEqual(value["messages"][0]["_social_input_source"], "voice")
+        self.assertEqual(value["messages"][0]["_social_reply_preference"], "audio")
         self.assertEqual(value["messages"][0]["from_user_id"], "US.123")
         self.assertNotIn("from", value["messages"][0])
         self.assertEqual(value["contacts"][0]["user_id"], "US.123")

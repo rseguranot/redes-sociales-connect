@@ -713,11 +713,13 @@ Resources:
               Action: [kms:Decrypt, kms:Encrypt, kms:GenerateDataKey, kms:DescribeKey]
               Resource: !GetAtt DataKey.Arn
             - Effect: Allow
-              Action: [connect:StartChatContact, connect:DescribeContact, connect:StartContactStreaming, connect:StopContact]
+              Action: [connect:StartChatContact, connect:DescribeContact, connect:StartContactStreaming,
+                connect:StopContact, connect:UpdateContactAttributes]
               Resource: '*'
             - Effect: Allow
               Action: [connectparticipant:CreateParticipantConnection, connectparticipant:SendMessage,
-                connectparticipant:GetAttachment]
+                connectparticipant:GetAttachment, connectparticipant:StartAttachmentUpload,
+                connectparticipant:CompleteAttachmentUpload]
               Resource: '*'
       Events:
         Work:

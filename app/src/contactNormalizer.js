@@ -16,6 +16,7 @@ export const SOCIAL_CONTACT_ATTRIBUTES = Object.freeze([
   "social_phone",
   "social_message_id",
   "social_history_token", "social_history_days", "social_last_agent_name", "social_last_agent_at",
+  "social_input_source", "social_reply_preference", "social_audio_url", "social_audio_filename",
   "social_collected_name", "social_collected_phone", "social_service", "social_document_type",
   "social_document_number", "social_case_number", "social_invoice_number", "social_request_detail",
   "social_incident_location", "social_incident_date", "social_incident_area", "social_request_priority",
@@ -47,6 +48,11 @@ function firstValue(attributes, keys) {
     if (value) return value;
   }
   return "";
+}
+
+function firstHttpsValue(attributes, keys) {
+  const value = firstValue(attributes, keys);
+  return /^https:\/\//i.test(value) ? value : "";
 }
 
 function isLegacyWhatsAppContact(attributes) {
@@ -102,6 +108,10 @@ export function normalizeContact(contactId, attributes = {}) {
     messageId: firstValue(attributes, ["social_message_id", "source_message_id"]),
     historyToken: firstValue(attributes, ["social_history_token"]),
     lastAgent: firstValue(attributes, ["social_last_agent_name"]),
+    inputSource: firstValue(attributes, ["social_input_source"]),
+    replyPreference: firstValue(attributes, ["social_reply_preference"]),
+    audioUrl: firstHttpsValue(attributes, ["social_audio_url"]),
+    audioFilename: firstValue(attributes, ["social_audio_filename"]),
     collected: Object.fromEntries(Object.entries(attributes).filter(([key, value]) => value && [
       "social_collected_name", "social_collected_phone", "social_service", "social_document_type",
       "social_document_number", "social_case_number", "social_invoice_number", "social_request_detail",

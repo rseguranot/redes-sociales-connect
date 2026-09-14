@@ -98,6 +98,30 @@ def test_case_lookup_switches_invoice_context_without_changing_identity():
         assert adapter.prepare(turn(text, attrs))["inputTranscript"] == text
 
 
+def test_complete_new_topic_resets_stale_expected_field():
+    attrs = {"bedrock_active_intent": "consulta", "consulta_factura": "pending",
+             "bedrock_supervisor_session_id": "old", "social_user_id": "qa"}
+    result = adapter.prepare(turn("Quiero saber el horario de la sucursal Herrera", attrs))
+    updated = result["sessionState"]["sessionAttributes"]
+    assert "bedrock_active_intent" not in updated
+    assert "consulta_factura" not in updated
+    assert updated["bedrock_supervisor_session_id"] != "old"
+    assert updated["social_user_id"] == "qa"
+
+
+def test_ambiguous_multi_topic_phrase_does_not_force_reset():
+    attrs = {"bedrock_active_intent": "consulta", "bedrock_supervisor_session_id": "same"}
+    result = adapter.prepare(turn("Necesito la dirección de entrega de mi pedido", attrs))
+    assert result["sessionState"]["sessionAttributes"]["bedrock_supervisor_session_id"] == "same"
+
+
+def test_reply_preference_can_switch_between_voice_and_text():
+    voice = adapter.prepare(turn("Respóndeme con una nota de voz", {"social_reply_preference": "text"}))
+    assert voice["sessionState"]["sessionAttributes"]["social_reply_preference"] == "audio"
+    written = adapter.prepare(turn("Mejor respóndeme por escrito", voice["sessionState"]["sessionAttributes"]))
+    assert written["sessionState"]["sessionAttributes"]["social_reply_preference"] == "text"
+
+
 def test_open_question_does_not_get_yes_no_buttons():
     text = adapter.present("Puedo ayudarte. ¿Cuál es tu nombre?", {})
     assert "\n\n¿Cuál" in text
